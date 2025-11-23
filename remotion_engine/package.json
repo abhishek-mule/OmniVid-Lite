@@ -1,0 +1,26 @@
+{
+  "name": "omnivid-remotion-engine",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "remotion preview",
+    "build": "remotion build --out out",
+    "render": "node scripts/render.js"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "remotion": "4.0.0",
+    "@remotion/bundler": "4.0.0",
+    "@remotion/renderer": "4.0.0",
+    "minimist": "1.2.8",
+    "styled-components": "6.1.1",
+    "react-player": "2.14.1"
+  },
+  "devDependencies": {
+    "@types/node": "18.0.0",
+    "@types/react": "18.2.0",
+    "@types/react-dom": "18.2.0",
+    "typescript": "5.0.4"
+  }
+}
