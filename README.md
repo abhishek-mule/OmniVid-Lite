@@ -35,7 +35,7 @@ The flow chart below illustrates the detailed, asynchronous pipeline from a user
 ```mermaid
 flowchart TD
     A[User Prompt via /render API] --> B[Validation & Job Creation];
-    B --> C[LLM Request (OpenAI / Mistral)];
+    B --> [LLM Request (OpenAI / Mistral)];
     C --> D[Scene JSON (validated)];
     D --> E[TSX Generator (Dynamic Remotion Scene)];
     E --> F[Write Files to Job Directory];
@@ -210,3 +210,4 @@ This MVP provides a strong foundation. Planned future features include:
 -----
 
 Would you like me to elaborate on the **Scene JSON** schema that the LLM is expected to produce?
+
