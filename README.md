@@ -32,19 +32,18 @@ The Omnivid Lite architecture follows a robust, linear process to ensure reliabi
 
 The flow chart below illustrates the detailed, asynchronous pipeline from a user's prompt to the final video output:
 
-```mermaid
 flowchart TD
-    A[User Prompt via /render API] --> B[Validation & Job Creation];
-    B --> [LLM Request (OpenAI / Mistral)];
-    C --> [Scene JSON (validated)];
-    D --> [TSX Generator (Dynamic Remotion Scene)];
-    E --> [Write Files to Job Directory];
-    F --> [Queue Task for Renderer];
-    G --> [Worker Picks Job];
-    H --> [Remotion CLI Render → MP4];
-    I --> [Store Output in /renders];
-    J --> [Status: completed + download link];
-```
+    A[User Prompt via /render API] --> B[Validation and Job Creation]
+    B --> C[LLM Request]
+    C --> D[Scene JSON Validated]
+    D --> E[TSX Generator]
+    E --> F[Write Files to Job Directory]
+    F --> G[Queue Task for Renderer]
+    G --> H[Worker Picks Job]
+    H --> I[Remotion CLI Render to MP4]
+    I --> J[Store Output in /renders]
+    J --> K[Status Completed and Download Link]
+
 
 ### Core Layers Explained
 
@@ -210,5 +209,6 @@ This MVP provides a strong foundation. Planned future features include:
 -----
 
 Would you like me to elaborate on the **Scene JSON** schema that the LLM is expected to produce?
+
 
 
