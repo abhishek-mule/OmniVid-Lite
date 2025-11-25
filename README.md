@@ -36,14 +36,14 @@ The flow chart below illustrates the detailed, asynchronous pipeline from a user
 flowchart TD
     A[User Prompt via /render API] --> B[Validation & Job Creation];
     B --> [LLM Request (OpenAI / Mistral)];
-    C --> D[Scene JSON (validated)];
-    D --> E[TSX Generator (Dynamic Remotion Scene)];
-    E --> F[Write Files to Job Directory];
-    F --> G[Queue Task for Renderer];
-    G --> H[Worker Picks Job];
-    H --> I[Remotion CLI Render → MP4];
-    I --> J[Store Output in /renders];
-    J --> K[Status: completed + download link];
+    C --> [Scene JSON (validated)];
+    D --> [TSX Generator (Dynamic Remotion Scene)];
+    E --> [Write Files to Job Directory];
+    F --> [Queue Task for Renderer];
+    G --> [Worker Picks Job];
+    H --> [Remotion CLI Render → MP4];
+    I --> [Store Output in /renders];
+    J --> [Status: completed + download link];
 ```
 
 ### Core Layers Explained
@@ -210,4 +210,5 @@ This MVP provides a strong foundation. Planned future features include:
 -----
 
 Would you like me to elaborate on the **Scene JSON** schema that the LLM is expected to produce?
+
 
