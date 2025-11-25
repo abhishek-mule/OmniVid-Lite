@@ -55,7 +55,7 @@ class BackgroundModel(BaseModel):
 class SceneModel(BaseModel):
     id: str
     duration: int  # frames
-    background: Optional[BackgroundModel] = BackgroundModel()
+    background: Optional[BackgroundModel] = None
     camera: Optional[Dict[str, Any]] = {}
     layers: List[Layer]
     transition: Optional[Dict[str, Any]] = {}

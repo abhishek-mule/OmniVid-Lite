@@ -11,7 +11,14 @@ class LLMParser:
         key = api_key or settings.OPENAI_API_KEY
         if not key:
             raise ValueError("OPENAI_API_KEY missing")
-        self.client = AsyncOpenAI(api_key=key)
+        # Check if using OpenRouter (key starts with sk-or- or model has /)
+        if key.startswith("sk-or-") or "/" in (settings.OPENAI_MODEL or ""):
+            self.client = AsyncOpenAI(
+                api_key=key,
+                base_url="https://openrouter.ai/api/v1"
+            )
+        else:
+            self.client = AsyncOpenAI(api_key=key)
 
     async def generate_dsl(self, user_prompt: str, temperature: float = 0.35, model: Optional[str] = None) -> dict:
         model = model or settings.OPENAI_MODEL

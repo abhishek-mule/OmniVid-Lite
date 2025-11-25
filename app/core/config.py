@@ -6,7 +6,7 @@ from typing import Optional
 class Settings(BaseSettings):
     """Application settings."""
     APP_NAME: str = "OmniVid Lite"
-    DEBUG: bool = False
+    DEBUG: str = "false"
     API_V1_STR: str = "/api/v1"
     
     # Database settings
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # OpenAI settings
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4"
+    OPENAI_MODEL: str = "gpt-4o-mini"
 
     # Code generation settings
     GENERATED_SCENE_DIR: Path = Path("remotion_engine/src/generated")
@@ -36,7 +36,12 @@ class Settings(BaseSettings):
     OUTPUT_DIR: Path = BASE_DIR / "remotion_engine" / "outputs"
     REMOTION_DIR: Path = BASE_DIR / "remotion_engine"
     REMOTION_SCRIPT: Path = REMOTION_DIR / "scripts" / "render.js"
-    
+
+    @property
+    def debug_enabled(self) -> bool:
+        """Convert DEBUG string to boolean."""
+        return self.DEBUG.lower() in ("true", "1", "yes", "on")
+
     class Config:
         case_sensitive = True
         env_file = ".env"

@@ -5,3 +5,5 @@ api_router = APIRouter()
 
 # Import and include all API versions
 from . import v1  # noqa
+
+api_router.include_router(v1.router)

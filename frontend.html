@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniVid Lite - Video Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+            min-height: 100px;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+        }
+        input[type="checkbox"] {
+            margin-right: 10px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .job-info {
+            margin-top: 15px;
+        }
+        .job-info p {
+            margin: 5px 0;
+        }
+        .download-link {
+            display: inline-block;
+            background-color: #28a745;
+            color: white;
+            padding: 10px 15px;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .download-link:hover {
+            background-color: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OmniVid Lite - AI Video Generator</h1>
+        <p>Enter a text prompt to generate a video. The AI will create scenes, animations, and render a video for you.</p>
+
+        <form id="videoForm">
+            <div class="form-group">
+                <label for="prompt">Video Prompt:</label>
+                <textarea id="prompt" name="prompt" placeholder="Describe the video you want to create... e.g., 'A beautiful sunset over mountains with birds flying'" required></textarea>
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="creative" name="creative">
+                    <label for="creative">Creative Mode (more experimental results)</label>
+                </div>
+            </div>
+
+            <button type="submit" id="submitBtn">Generate Video</button>
+        </form>
+
+        <div id="status" class="status">
+            <div id="statusContent"></div>
+            <div id="jobInfo" class="job-info" style="display: none;">
+                <p><strong>Job ID:</strong> <span id="jobId"></span></p>
+                <p><strong>Status:</strong> <span id="jobStatus"></span></p>
+                <p id="errorInfo" style="display: none;"><strong>Error:</strong> <span id="jobError"></span></p>
+                <div id="downloadSection" style="display: none;">
+                    <a id="downloadLink" href="#" class="download-link" target="_blank">Download Video</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('videoForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const statusDiv = document.getElementById('status');
+        const statusContent = document.getElementById('statusContent');
+        const jobInfo = document.getElementById('jobInfo');
+        const jobIdSpan = document.getElementById('jobId');
+        const jobStatusSpan = document.getElementById('jobStatus');
+        const errorInfo = document.getElementById('errorInfo');
+        const jobErrorSpan = document.getElementById('jobError');
+        const downloadSection = document.getElementById('downloadSection');
+        const downloadLink = document.getElementById('downloadLink');
+
+        let pollInterval;
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const prompt = document.getElementById('prompt').value.trim();
+            const creative = document.getElementById('creative').checked;
+
+            if (!prompt) {
+                showStatus('Please enter a prompt.', 'error');
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Starting...';
+
+            try {
+                const response = await fetch('http://localhost:8000/api/v1/render', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        creative: creative
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                showStatus('Video generation started! Job queued for processing.', 'success');
+                jobIdSpan.textContent = data.job_id;
+                jobStatusSpan.textContent = 'queued';
+                jobInfo.style.display = 'block';
+                errorInfo.style.display = 'none';
+                downloadSection.style.display = 'none';
+
+                // Start polling for status
+                pollJobStatus(data.job_id);
+
+            } catch (error) {
+                showStatus(`Error starting video generation: ${error.message}`, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Generate Video';
+            }
+        });
+
+        function showStatus(message, type) {
+            statusContent.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+
+        async function pollJobStatus(jobId) {
+            pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`http://localhost:8000/api/v1/render/status/${jobId}`);
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            showStatus('Job not found.', 'error');
+                            clearInterval(pollInterval);
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = 'Generate Video';
+                            return;
+                        }
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    jobStatusSpan.textContent = data.status;
+
+                    if (data.status === 'done') {
+                        showStatus('Video generation completed successfully!', 'success');
+                        downloadLink.href = `http://localhost:8000/api/v1/render/download/${jobId}`;
+                        downloadSection.style.display = 'block';
+                        clearInterval(pollInterval);
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Generate Video';
+                    } else if (data.status === 'error') {
+                        showStatus('Video generation failed.', 'error');
+                        jobErrorSpan.textContent = data.error || 'Unknown error';
+                        errorInfo.style.display = 'block';
+                        clearInterval(pollInterval);
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Generate Video';
+                    } else if (data.status === 'running') {
+                        showStatus('Video is being generated...', 'info');
+                    }
+                    // Continue polling for 'queued' or 'running'
+                } catch (error) {
+                    console.error('Error polling job status:', error);
+                    // Continue polling
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+    </script>
+</body>
+</html>
