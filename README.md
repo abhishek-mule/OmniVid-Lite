@@ -20,8 +20,7 @@ Omnivid Lite is built around a powerful, automated pipeline for video creation:
 
 The Omnivid Lite architecture follows a robust, linear process to ensure reliability from prompt to final video.
 
-## Pipeline Flow
-
+### Pipeline Flow
 ```mermaid
 graph TD
     A[User Prompt (API Request)] --> B(LLM: OpenAI / Mistral);
@@ -194,4 +193,5 @@ This MVP provides a strong foundation. Planned future features include:
   * **Template Library:** Pre-defined animation templates for faster, higher-quality output.
 
 -----
+
 
