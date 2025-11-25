@@ -1,6 +1,14 @@
+That is a much better and more detailed flow chart\! It clearly outlines the steps from API request to final download link.
+
+Here is the fully updated, polished, and professional `README.md` file for **Omnivid Lite**, incorporating this new detailed pipeline flow.
+
+-----
+
 # 🚀 Omnivid Lite: Natural Language Video Generation MVP
 
-**Omnivid Lite** is a Minimum Viable Product (MVP) that transforms a simple natural language prompt into a dynamically rendered MP4 video. It provides a simple, API-driven pipeline for generating animated content using the power of Large Language Models (LLMs) and the flexibility of Remotion.
+**Omnivid Lite** is a Minimum Viable Product (MVP) that transforms a simple natural language prompt into a dynamically rendered MP4 video. It provides a simple, API-driven pipeline for generating animated content using the power of Large Language Models (LLMs) and the flexibility of **Remotion**.
+
+-----
 
 ## ✨ Features (Clear & Bulletproof)
 
@@ -16,33 +24,32 @@ Omnivid Lite is built around a powerful, automated pipeline for video creation:
 
 -----
 
-
 ## 🏗️ High-Level Architecture Overview
 
 The Omnivid Lite architecture follows a robust, linear process to ensure reliability from prompt to final video.
 
-## 🔁 Omnivid Lite – Video Generation Pipeline
+### 🔁 Omnivid Lite – Video Generation Pipeline
+
+The flow chart below illustrates the detailed, asynchronous pipeline from a user's prompt to the final video output:
 
 ```mermaid
 flowchart TD
-    A[User Prompt via /render API] --> B[Validation & Job Creation];
-    B --> C[LLM Request (OpenAI / Mistral)];
-    C --> D[Scene JSON (validated)];
-    D --> E[TSX Generator (Dynamic Remotion Scene)];
-    E --> F[Write Files to Job Directory];
-    F --> G[Queue Task for Renderer];
-    G --> H[Worker Picks Job];
-    H --> I[Remotion CLI Render → MP4];
-    I --> J[Store Output in /renders];
-    J --> K[Status: completed + download link];
-
------
-
+    A[User Prompt via /render API] --> B[Validation & Job Creation];
+    B --> C[LLM Request (OpenAI / Mistral)];
+    C --> D[Scene JSON (validated)];
+    D --> E[TSX Generator (Dynamic Remotion Scene)];
+    E --> F[Write Files to Job Directory];
+    F --> G[Queue Task for Renderer];
+    G --> H[Worker Picks Job];
+    H --> I[Remotion CLI Render → MP4];
+    I --> J[Store Output in /renders];
+    J --> K[Status: completed + download link];
+```
 
 ### Core Layers Explained
 
   * **API Layer:** Built with **FastAPI**, providing simple REST endpoints: `/render`, `/status`, and `/download`.
-  * **LLM Layer:** The intelligence core. Converts the natural language prompt into structured, machine-readable animation instructions (Scene JSON).
+  * **LLM Layer:** The intelligence core. Converts the natural language prompt into structured, machine-readable animation instructions (**Scene JSON**).
   * **Generation Layer:** Responsible for taking the Scene JSON and programmatically producing the required **Remotion `.tsx`** source files dynamically.
   * **Rendering Layer:** Leverages the **Remotion CLI** to execute the generated `.tsx` code and produce the raw video output.
   * **Storage Layer:** Handles file persistence, saving temporary job files, and storing the final rendered **MP4** output.
@@ -100,7 +107,7 @@ Once set up, you need to run the **FastAPI backend**.
 uvicorn app.main:app --reload
 ```
 
-> **Note:** For a full, functional pipeline, a separate worker process would typically run the render queue. For this MVP, the render process may be executed directly in the backend thread or via a simple background process.
+> **Note:** This setup runs the FastAPI server. For full asynchronous rendering as outlined in the pipeline, you would typically need a separate **worker process** running alongside the backend to pick up and execute the queued render tasks.
 
 -----
 
@@ -202,7 +209,4 @@ This MVP provides a strong foundation. Planned future features include:
 
 -----
 
-
-
-
-
+Would you like me to elaborate on the **Scene JSON** schema that the LLM is expected to produce?
