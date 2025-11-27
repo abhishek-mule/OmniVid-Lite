@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     REMOTION_CMD: str = Field(default="npx remotion", env="REMOTION_CMD")
     REDIS_DSN: str = Field(default="redis://localhost:6379", env="REDIS_DSN")
+    REMOTION_TIMEOUT: int = Field(default=300, env="REMOTION_TIMEOUT")  # 5 minutes
 
     # Authentication settings
     REQUIRE_API_KEY: bool = Field(default=False, env="REQUIRE_API_KEY")
