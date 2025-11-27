@@ -18,6 +18,7 @@ from app.services.job_service import (
     cleanup_old_jobs,
     cleanup_orphaned_files,
 )
+from app.services.errors import QuotaError
 from app.services.logging_service import audit_logger
 
 router = APIRouter()
@@ -62,8 +63,11 @@ async def start_render(req: RenderRequest, user=Depends(require_user), request: 
     if not prompt:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Prompt must be non-empty")
 
-    job = create_job_with_idempotency(prompt, req.creative, user_id=user.id)
-    audit_logger.log_job_event(job.id, "job_created", {"prompt": prompt, "creative": req.creative}, user.id)
+    try:
+        job = create_job_with_idempotency(prompt, req.creative, user_id=user.id)
+        audit_logger.log_job_event(job.id, "job_created", {"prompt": prompt, "creative": req.creative}, user.id)
+    except QuotaError as e:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
 
     redis = await get_redis_pool()
     if redis:

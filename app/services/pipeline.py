@@ -12,6 +12,7 @@ from app.services.scene_to_tsx import scene_to_tsx
 from app.services.remotion_adapter import render_remotion
 from app.schemas.dsl_schema import VideoDSL
 from app.services.errors import LLMError, DSLTransformError, RenderError
+from app.services.llm_client import llm_client
 from app.services.logging_service import audit_logger
 
 OUTPUT_DIR = settings.OUTPUT_DIR
@@ -103,6 +104,12 @@ async def run_pipeline(prompt: str, job_id: str, creative: bool = False):
         audit_logger.log_error(job_id, "validation_error", str(e))
         save_status(job_dir, current_stage, logs)
         return {"status": "failed", "stage": "validation", "error": str(e), "logs": logs}
+
+    except LLMError as e:
+        logs.append(log_entry("llm", f"❌ LLM Error: {e}"))
+        audit_logger.log_error(job_id, "llm_error", str(e))
+        save_status(job_dir, current_stage, logs)
+        return {"status": "failed", "stage": "llm", "error": str(e), "logs": logs}
 
     except RenderError as e:
         logs.append(log_entry("render", f"❌ Rendering failed: {e}"))

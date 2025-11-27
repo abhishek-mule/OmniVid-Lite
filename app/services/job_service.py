@@ -1,15 +1,58 @@
 import hashlib
 import json
 from typing import Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.models import Job, JobStatus
 from app.db.session import get_db_session
+from app.core.config import settings
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def compute_request_hash(payload: dict) -> str:
     """Compute hash for request deduplication"""
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+def check_user_quota(user_id: Optional[str] = None) -> tuple[bool, str]:
+    """
+    Check if user is within quota limits
+
+    Returns:
+        (allowed, reason)
+    """
+    if not user_id:
+        return True, "No user ID provided"
+
+    with get_db_session() as session:
+        # Check concurrent jobs (processing/queued)
+        concurrent_jobs = session.query(func.count(Job.id)).filter(
+            Job.user_id == user_id,
+            Job.status.in_([JobStatus.PENDING, JobStatus.QUEUED, JobStatus.PROCESSING])
+        ).scalar()
+
+        if concurrent_jobs >= settings.MAX_CONCURRENT_JOBS_PER_USER:
+            return False, f"Too many concurrent jobs ({concurrent_jobs}/{settings.MAX_CONCURRENT_JOBS_PER_USER})"
+
+        # Check daily job limit
+        today = datetime.utcnow().date()
+        daily_jobs = session.query(func.count(Job.id)).filter(
+            Job.user_id == user_id,
+            func.date(Job.created_at) == today
+        ).scalar()
+
+        if daily_jobs >= settings.MAX_JOBS_PER_USER_PER_DAY:
+            return False, f"Daily job limit exceeded ({daily_jobs}/{settings.MAX_JOBS_PER_USER_PER_DAY})"
+
+        # Check storage quota (sum of file sizes for completed jobs)
+        total_size = session.query(func.sum(Job.video_size_mb)).filter(
+            Job.user_id == user_id,
+            Job.status == JobStatus.COMPLETED,
+            Job.created_at >= datetime.utcnow() - timedelta(days=30)  # Last 30 days
+        ).scalar() or 0
+
+        if total_size >= settings.MAX_STORAGE_MB_PER_USER:
+            return False, f"Storage quota exceeded ({total_size:.1f}MB/{settings.MAX_STORAGE_MB_PER_USER}MB)"
+
+    return True, "OK"
 
 def create_job_with_idempotency(
     prompt: str,
@@ -17,6 +60,12 @@ def create_job_with_idempotency(
     user_id: Optional[str] = None
 ) -> Job:
     """Create a job with idempotency based on request content"""
+    # Check user quota first
+    allowed, reason = check_user_quota(user_id)
+    if not allowed:
+        from app.services.errors import QuotaError
+        raise QuotaError(f"Quota exceeded: {reason}")
+
     request_payload = {
         "prompt": prompt,
         "creative": creative,

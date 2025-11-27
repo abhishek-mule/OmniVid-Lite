@@ -1,9 +1,14 @@
 # app/services/llm_client.py
+import asyncio
 import httpx
 import os
 import json
+import logging
 from typing import Optional
 from app.core.config import settings
+from app.services.errors import LLMError
+
+logger = logging.getLogger(__name__)
 
 class LLMClient:
     def __init__(self):
@@ -13,23 +18,55 @@ class LLMClient:
         self.openai_key = settings.OPENAI_API_KEY
         self.openai_model = settings.OPENAI_MODEL
 
-    async def generate_dsl(self, prompt: str, temperature: float = 0.2, max_tokens: int = 1500) -> dict:
+    async def generate_dsl(self, user_prompt: str, temperature: float = 0.2, max_tokens: int = 1500) -> dict:
         """
         Return parsed JSON (DSL). Caller expects a dict.
+        Implements robust error handling with proper fallbacks and timeouts.
         """
+        # Validate input
+        if not user_prompt or len(user_prompt.strip()) < 10:
+            raise LLMError("Prompt too short (minimum 10 characters)")
+
+        if len(user_prompt) > 1000:
+            raise LLMError("Prompt too long (maximum 1000 characters)")
+
+        prompt = self._full_prompt(user_prompt)
+
+        # Try local LLM first if enabled
         if self.use_local:
             try:
-                return await self._call_ollama(prompt, temperature, max_tokens)
+                return await asyncio.wait_for(
+                    self._call_ollama(prompt, temperature, max_tokens),
+                    timeout=30.0  # 30 second timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Ollama timeout, falling back to OpenAI")
             except Exception as e:
-                # fallback to OpenAI if available
-                if self.openai_key:
-                    return await self._call_openai(prompt, temperature, max_tokens)
-                raise
+                logger.warning(f"Ollama failed: {e}, falling back to OpenAI")
+                # Check if it's a permanent error (model not found, auth, etc.)
+                if self._is_permanent_error(e):
+                    logger.error(f"Permanent Ollama error: {e}")
+                    if not self.openai_key:
+                        raise LLMError(f"Local LLM permanently unavailable and no OpenAI fallback: {e}")
 
-        # default: OpenAI
+        # Try OpenAI if available
         if self.openai_key:
-            return await self._call_openai(prompt, temperature, max_tokens)
-        raise RuntimeError("No LLM configured (set USE_LOCAL_LLM or OPENAI_API_KEY)")
+            try:
+                return await asyncio.wait_for(
+                    self._call_openai(prompt, temperature, max_tokens),
+                    timeout=30.0  # 30 second timeout
+                )
+            except asyncio.TimeoutError:
+                raise LLMError("OpenAI request timeout")
+            except Exception as e:
+                if self._is_auth_error(e):
+                    raise LLMError(f"OpenAI authentication failed: {e}")
+                elif self._is_model_error(e):
+                    raise LLMError(f"OpenAI model not available: {e}")
+                else:
+                    raise LLMError(f"OpenAI request failed: {e}")
+
+        raise LLMError("No LLM service available (configure USE_LOCAL_LLM or OPENAI_API_KEY)")
 
     async def _call_ollama(self, prompt: str, temperature: float, max_tokens: int) -> dict:
         """
@@ -92,6 +129,30 @@ class LLMClient:
 
     def _full_prompt(self, user_prompt: str) -> str:
         return f"{self._system_prompt()}\n\nUser prompt: {user_prompt}"
+
+    def _is_permanent_error(self, error: Exception) -> bool:
+        """Check if error is permanent (no retry)"""
+        error_str = str(error).lower()
+        return any(keyword in error_str for keyword in [
+            "model not found", "unauthorized", "forbidden", "invalid api key",
+            "authentication failed", "model does not exist"
+        ])
+
+    def _is_auth_error(self, error: Exception) -> bool:
+        """Check if error is authentication-related"""
+        error_str = str(error).lower()
+        return any(keyword in error_str for keyword in [
+            "unauthorized", "invalid api key", "authentication failed",
+            "forbidden", "401"
+        ])
+
+    def _is_model_error(self, error: Exception) -> bool:
+        """Check if error is model-related"""
+        error_str = str(error).lower()
+        return any(keyword in error_str for keyword in [
+            "model not found", "model does not exist", "invalid model",
+            "model not available"
+        ])
 
 # export singleton
 llm_client = LLMClient()

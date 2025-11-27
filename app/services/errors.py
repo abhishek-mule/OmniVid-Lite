@@ -6,3 +6,6 @@ class DSLTransformError(Exception):
 
 class RenderError(Exception):
     pass
+
+class QuotaError(Exception):
+    pass

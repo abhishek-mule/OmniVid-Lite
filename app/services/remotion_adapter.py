@@ -3,8 +3,6 @@ import subprocess
 from pathlib import Path
 from app.core.config import settings
 from app.services.errors import RenderError
-import shlex
-import subprocess
 
 REMOTION_ROOT = settings.REMOTION_DIR
 
@@ -53,19 +51,62 @@ def render_remotion(composition_id: str, output_path: str, job_dir: str) -> None
         index_path.write_text(index_content, encoding="utf-8")
 
     # Step 2: Ensure build includes the new component
-    build_cmd = f"npm run build -- --quiet"
-    build_proc = subprocess.run(build_cmd, shell=True, cwd=str(REMOTION_ROOT))
-    if build_proc.returncode != 0:
-        raise RenderError(f"Remotion build failed (code={build_proc.returncode}). Command: {build_cmd}")
+    build_cmd = ["npm", "run", "build", "--", "--quiet"]
+    try:
+        build_proc = subprocess.run(
+            build_cmd,
+            cwd=str(REMOTION_ROOT),
+            timeout=settings.REMOTION_TIMEOUT,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if build_proc.returncode != 0:
+            error_msg = f"Remotion build failed (code={build_proc.returncode})"
+            if build_proc.stderr:
+                error_msg += f"\nSTDERR: {build_proc.stderr}"
+            raise RenderError(error_msg)
+    except subprocess.TimeoutExpired:
+        raise RenderError(f"Remotion build timed out after {settings.REMOTION_TIMEOUT} seconds")
 
     # Step 3: Render the specific composition
     script = REMOTION_ROOT / "scripts" / "render.js"
-    if script.exists():
-        render_cmd = f"node {shlex.quote(str(script))} --comp {shlex.quote(composition_id)} --out {shlex.quote(output_path)}"
+    if script.exists() and script.is_file():
+        render_cmd = [
+            "node",
+            str(script),
+            "--comp", composition_id,
+            "--out", output_path
+        ]
     else:
         # Fallback to direct remotion command
-        render_cmd = f"{settings.REMOTION_CMD} render src/index.tsx {composition_id} --codec h264 --output {shlex.quote(output_path)} --overwrite"
+        render_cmd = [
+            settings.REMOTION_CMD,
+            "render",
+            "src/index.tsx",
+            composition_id,
+            "--codec", "h264",
+            "--output", output_path,
+            "--overwrite"
+        ]
 
-    render_proc = subprocess.run(render_cmd, shell=True, cwd=str(REMOTION_ROOT))
-    if render_proc.returncode != 0:
-        raise RenderError(f"Remotion render failed (code={render_proc.returncode}). Command: {render_cmd}")
+    try:
+        render_proc = subprocess.run(
+            render_cmd,
+            cwd=str(REMOTION_ROOT),
+            timeout=settings.REMOTION_TIMEOUT,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if render_proc.returncode != 0:
+            error_msg = f"Remotion render failed (code={render_proc.returncode})"
+            if render_proc.stderr:
+                error_msg += f"\nSTDERR: {render_proc.stderr}"
+            if render_proc.stdout:
+                error_msg += f"\nSTDOUT: {render_proc.stdout}"
+            raise RenderError(error_msg)
+    except subprocess.TimeoutExpired:
+        raise RenderError(f"Remotion render timed out after {settings.REMOTION_TIMEOUT} seconds")
+    except FileNotFoundError as e:
+        raise RenderError(f"Remotion command not found: {settings.REMOTION_CMD} - {e}")
