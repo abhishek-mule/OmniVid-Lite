@@ -24,18 +24,18 @@ def _fetch_asset(url: str) -> str:
             shutil.copy(src, dest)
     return f"/public/{fname}"
 
-def scene_to_tsx(dsl_path: str, tsx_path: str):
+def scene_to_tsx(dsl_path: str, tsx_path: str, component_name: str = "GeneratedScene"):
     with open(dsl_path, 'r') as f:
         dsl = json.load(f)
     out_dir = Path(tsx_path).parent
-    generate_remotion_from_dsl(dsl, out_dir)
-    # rename Scene.tsx to GeneratedScene.tsx
+    generate_remotion_from_dsl(dsl, out_dir, component_name)
+    # rename Scene.tsx to the specified component name
     scene_file = out_dir / "Scene.tsx"
     generated_file = Path(tsx_path)
     if scene_file.exists():
         scene_file.rename(generated_file)
 
-def generate_remotion_from_dsl(dsl: dict, out_dir: Path):
+def generate_remotion_from_dsl(dsl: dict, out_dir: Path, component_name: str = "GeneratedScene"):
     out_dir.mkdir(parents=True, exist_ok=True)
     # 1) write a simple generated Scene.tsx which imports MotionEngine and passes the DSL as a JSON prop
     scene_path = out_dir / "Scene.tsx"
@@ -57,26 +57,26 @@ import React from 'react';
 import MotionEngine from '../MotionEngine';
 import dsl from './dsl.json';
 
-export const GeneratedScene = () => {{
+export const {component_name} = () => {{
   return <MotionEngine dsl={{dsl}} />;
 }};
 
-export default GeneratedScene;
+export default {component_name};
 """
     # Atomic write
     tmp_file = scene_path.with_suffix(".tmp")
     tmp_file.write_text(tsx, encoding="utf-8")
     tmp_file.replace(scene_path)
 
-    # 2) Build MainVideo.tsx that wraps GeneratedScene composition as Main
+    # 2) Build MainVideo.tsx that wraps the component composition as Main
     main_path = settings.REMOTION_DIR / "src" / "MainVideo.tsx"
-    main_tsx = """
+    main_tsx = f"""
 import React from 'react';
-import { GeneratedScene } from './generated/GeneratedScene';
+import {{ {component_name} }} from './generated/{component_name}';
 
-export const MainVideo = (props) => {
-  return <GeneratedScene />;
-};
+export const MainVideo = (props) => {{
+  return <{component_name} />;
+}};
 
 export default MainVideo;
 """

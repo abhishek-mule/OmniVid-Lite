@@ -15,7 +15,10 @@ from app.services.job_service import (
     create_job_with_idempotency,
     get_job,
     cancel_job,
+    cleanup_old_jobs,
+    cleanup_orphaned_files,
 )
+from app.services.logging_service import audit_logger
 
 router = APIRouter()
 
@@ -60,9 +63,11 @@ async def start_render(req: RenderRequest, user=Depends(require_user), request: 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Prompt must be non-empty")
 
     job = create_job_with_idempotency(prompt, req.creative, user_id=user.id)
+    audit_logger.log_job_event(job.id, "job_created", {"prompt": prompt, "creative": req.creative}, user.id)
 
     redis = await get_redis_pool()
     await redis.enqueue_job("generate_video", job.id)
+    audit_logger.log_job_event(job.id, "job_enqueued", {}, user.id)
 
     base = str(request.base_url).rstrip("/")
 
@@ -110,6 +115,7 @@ def cancel_job_endpoint(job_id: str, user=Depends(require_user)):
     if not cancel_job(job_id):
         raise HTTPException(status.HTTP_409_CONFLICT, "Cannot cancel at this stage")
 
+    audit_logger.log_job_event(job_id, "job_cancelled", {}, user.id)
     return {"message": "Cancellation requested"}
 
 
@@ -138,6 +144,8 @@ def download(job_id: str, user=Depends(require_user)):
         with open(path, "rb") as f:
             while data := f.read(chunk):
                 yield data
+
+    audit_logger.log_job_event(job_id, "file_downloaded", {"filename": path.name}, user.id)
 
     return StreamingResponse(
         stream(),
@@ -171,3 +179,21 @@ def list_jobs(limit: int = 50, user=Depends(require_user)):
             for j in jobs_db
         ]
     )
+
+
+@router.post("/cleanup")
+def cleanup_system(days_old: int = 7, user=Depends(require_user)):
+    """Clean up old jobs and orphaned files (admin operation)"""
+
+    # Basic auth check - in real app, check for admin role
+    if user.id != "demo_user":  # Placeholder for admin check
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
+
+    old_jobs_cleaned = cleanup_old_jobs(days_old)
+    orphaned_cleaned = cleanup_orphaned_files()
+
+    return {
+        "message": f"Cleanup completed: {old_jobs_cleaned} old jobs, {orphaned_cleaned} orphaned files removed",
+        "old_jobs_removed": old_jobs_cleaned,
+        "orphaned_files_removed": orphaned_cleaned
+    }
