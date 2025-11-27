@@ -23,6 +23,21 @@ class Settings(BaseSettings):
     REMOTION_CMD: str = Field(default="npx remotion", env="REMOTION_CMD")
     REDIS_DSN: str = Field(default="redis://localhost:6379", env="REDIS_DSN")
 
+    # Authentication settings
+    REQUIRE_API_KEY: bool = Field(default=False, env="REQUIRE_API_KEY")
+    API_KEY_HEADER: str = Field(default="X-API-Key", env="API_KEY_HEADER")
+
+    # Rate limiting settings
+    RATE_LIMIT_ENABLED: bool = Field(default=True, env="RATE_LIMIT_ENABLED")
+    RATE_LIMIT_PER_MINUTE: int = Field(default=60, env="RATE_LIMIT_PER_MINUTE")
+    RATE_LIMIT_PER_HOUR: int = Field(default=1000, env="RATE_LIMIT_PER_HOUR")
+
+    # CORS settings
+    ALLOWED_ORIGINS: list[str] = Field(default=["http://localhost:3000", "http://localhost:8000"], env="ALLOWED_ORIGINS")
+
+    # Logging settings
+    LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
+
     class Config:
         env_file = ".env"
         case_sensitive = True
