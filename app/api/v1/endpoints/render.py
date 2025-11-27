@@ -1,22 +1,23 @@
 from pathlib import Path
-import json
-import uuid
-import logging
-import os
-from typing import Dict, Any, Optional, List
-
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, status, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from typing import Optional, List
+
+from sqlalchemy import select
 
 from app.core.config import settings
-from app.services.pipeline import run_pipeline
+from app.db.models import Job, JobStatus
+from app.db.session import get_session
+from app.services.redis_pool import get_redis_pool
+from app.services.security import require_user
+from app.services.job_service import (
+    create_job_with_idempotency,
+    get_job,
+    cancel_job,
+)
 
-logger = logging.getLogger("omnivid.api.render")
 router = APIRouter()
-
-JOBS_DIR = settings.BASE_DIR / "jobs"
-JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------- MODELS ----------------------
@@ -26,150 +27,147 @@ class RenderRequest(BaseModel):
     creative: Optional[bool] = False
 
 
-class JobStatus(BaseModel):
+class JobStatusResponse(BaseModel):
     job_id: str
     status: str
-    output: Optional[str] = None
-    error: Optional[str] = None
-    logs: Optional[str] = None
-    raw: Optional[Dict[str, Any]] = None
+    progress: float
+    output_path: Optional[str]
+    error: Optional[str]
+    created_at: str
+    updated_at: str
 
 
 class JobSummary(BaseModel):
     job_id: str
     status: str
-    output: Optional[str]
-    time: float
+    output_path: Optional[str]
+    created_at: str
+    updated_at: str
 
 
 class JobListResponse(BaseModel):
     jobs: List[JobSummary]
 
 
-# ---------------------- UTILS ----------------------
-
-def _job_file_path(job_id: str) -> Path:
-    return JOBS_DIR / f"{job_id}.json"
-
-
-async def _write_job_status(job_id: str, payload: Dict[str, Any]):
-    _job_file_path(job_id).write_text(json.dumps(payload, indent=2))
-
-
-# ---------------------- BACKGROUND WORKER ----------------------
-
-async def _background_worker(prompt: str, job_id: str, creative: bool):
-    logger.info("Job %s started", job_id)
-
-    await _write_job_status(job_id, {
-        "job_id": job_id,
-        "status": "running",
-        "output": None,
-        "error": None,
-    })
-
-    try:
-        result = await run_pipeline(prompt=prompt, job_id=job_id, creative=creative)
-
-        final = {
-            "job_id": job_id,
-            "status": result.get("status", "done"),
-            "output": result.get("output"),
-            "logs": result.get("logs"),
-            "raw": result
-        }
-
-        await _write_job_status(job_id, final)
-        logger.info("Job %s finished", job_id)
-
-    except Exception as e:
-        await _write_job_status(job_id, {
-            "job_id": job_id,
-            "status": "error",
-            "output": None,
-            "error": str(e)
-        })
-        logger.exception("Job %s failed", job_id)
-
-
 # ---------------------- ROUTES ----------------------
 
 @router.post("/render", status_code=202)
-async def start_render(req: RenderRequest, background_tasks: BackgroundTasks):
+async def start_render(req: RenderRequest, user=Depends(require_user), request: Request = None):
+    """Create + queue a render request."""
+
     prompt = req.prompt.strip()
     if not prompt:
-        raise HTTPException(400, "Prompt must be non-empty")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Prompt must be non-empty")
 
-    job_id = str(uuid.uuid4())
+    job = create_job_with_idempotency(prompt, req.creative, user_id=user.id)
 
-    await _write_job_status(job_id, {
-        "job_id": job_id,
-        "status": "queued",
-        "output": None,
-        "error": None
-    })
+    redis = await get_redis_pool()
+    await redis.enqueue_job("generate_video", job.id)
 
-    background_tasks.add_task(_background_worker, prompt, job_id, req.creative)
+    base = str(request.base_url).rstrip("/")
 
     return {
-        "job_id": job_id,
-        "status": "queued",
-        "status_url": f"/api/v1/render/status/{job_id}",
-        "download_url": f"/api/v1/render/download/{job_id}",
+        "job_id": job.id,
+        "status": job.status.value,
+        "poll_url": f"{base}/api/v1/render/status/{job.id}",
+        "download_url": f"{base}/api/v1/render/download/{job.id}",
     }
 
 
-@router.get("/status/{job_id}", response_model=JobStatus)
-async def get_status(job_id: str):
-    p = _job_file_path(job_id)
-    if not p.exists():
-        raise HTTPException(404, "job not found")
+@router.get("/status/{job_id}", response_model=JobStatusResponse)
+def get_status(job_id: str, user=Depends(require_user)):
+    """Return job status."""
 
-    data = json.loads(p.read_text())
-    return JobStatus(**data)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+
+    if job.user_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Unauthorized")
+
+    return JobStatusResponse(
+        job_id=job.id,
+        status=job.status.value,
+        progress=job.progress,
+        output_path=job.output_path,
+        error=job.error,
+        created_at=job.created_at.isoformat(),
+        updated_at=job.updated_at.isoformat(),
+    )
+
+
+@router.patch("/cancel/{job_id}")
+def cancel_job_endpoint(job_id: str, user=Depends(require_user)):
+    """Cancel a job."""
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+
+    if job.user_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Unauthorized")
+
+    if not cancel_job(job_id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cannot cancel at this stage")
+
+    return {"message": "Cancellation requested"}
 
 
 @router.get("/download/{job_id}")
-async def download_result(job_id: str):
-    p = _job_file_path(job_id)
-    if not p.exists():
-        raise HTTPException(404, "job not found")
+def download(job_id: str, user=Depends(require_user)):
+    """Serve rendered file."""
 
-    meta = json.loads(p.read_text())
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
 
-    if meta.get("status") != "done":
-        raise HTTPException(400, f"job not finished: {meta.get('status')}")
+    if job.user_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Unauthorized")
 
-    output = meta.get("output")
-    if not output:
-        raise HTTPException(404, "no output recorded")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(status.HTTP_425_TOO_EARLY, f"Job not ready: {job.status.value}")
 
-    out_path = Path(output)
-    if not out_path.exists():
-        candidate = settings.OUTPUT_DIR / out_path.name
-        if candidate.exists():
-            out_path = candidate
-        else:
-            raise HTTPException(404, "rendered file not found")
+    if not job.output_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Output missing")
 
-    return FileResponse(out_path, filename=out_path.name, media_type="video/mp4")
+    path = Path(job.output_path)
+    if not path.exists():
+        raise HTTPException(status.HTTP_410_GONE, "File expired")
+
+    def stream(chunk=8192):
+        with open(path, "rb") as f:
+            while data := f.read(chunk):
+                yield data
+
+    return StreamingResponse(
+        stream(),
+        media_type="video/mp4",
+        headers={"Content-Disposition": f"attachment; filename={path.name}"}
+    )
 
 
 @router.get("/jobs", response_model=JobListResponse)
-async def list_jobs(limit: int = 50):
-    files = sorted(JOBS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    jobs = []
+def list_jobs(limit: int = 50, user=Depends(require_user)):
 
-    for p in files[:limit]:
-        try:
-            data = json.loads(p.read_text())
-            jobs.append(JobSummary(
-                job_id=data.get("job_id"),
-                status=data.get("status"),
-                output=data.get("output"),
-                time=p.stat().st_mtime
-            ))
-        except:
-            continue
+    with get_session() as session:
+        stmt = (
+            select(Job)
+            .where(Job.user_id == user.id)
+            .order_by(Job.created_at.desc())
+            .limit(limit)
+        )
+        result = session.execute(stmt)
+        jobs_db = result.scalars().all()
 
-    return JobListResponse(jobs=jobs)
+    return JobListResponse(
+        jobs=[
+            JobSummary(
+                job_id=j.id,
+                status=j.status.value,
+                output_path=j.output_path,
+                created_at=j.created_at.isoformat(),
+                updated_at=j.updated_at.isoformat(),
+            )
+            for j in jobs_db
+        ]
+    )

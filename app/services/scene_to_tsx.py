@@ -24,6 +24,17 @@ def _fetch_asset(url: str) -> str:
             shutil.copy(src, dest)
     return f"/public/{fname}"
 
+def scene_to_tsx(dsl_path: str, tsx_path: str):
+    with open(dsl_path, 'r') as f:
+        dsl = json.load(f)
+    out_dir = Path(tsx_path).parent
+    generate_remotion_from_dsl(dsl, out_dir)
+    # rename Scene.tsx to GeneratedScene.tsx
+    scene_file = out_dir / "Scene.tsx"
+    generated_file = Path(tsx_path)
+    if scene_file.exists():
+        scene_file.rename(generated_file)
+
 def generate_remotion_from_dsl(dsl: dict, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
     # 1) write a simple generated Scene.tsx which imports MotionEngine and passes the DSL as a JSON prop
@@ -52,13 +63,16 @@ export const GeneratedScene = () => {{
 
 export default GeneratedScene;
 """
-    scene_path.write_text(tsx, encoding="utf-8")
+    # Atomic write
+    tmp_file = scene_path.with_suffix(".tmp")
+    tmp_file.write_text(tsx, encoding="utf-8")
+    tmp_file.replace(scene_path)
 
     # 2) Build MainVideo.tsx that wraps GeneratedScene composition as Main
     main_path = settings.REMOTION_DIR / "src" / "MainVideo.tsx"
     main_tsx = """
 import React from 'react';
-import { GeneratedScene } from './generated/Scene';
+import { GeneratedScene } from './generated/GeneratedScene';
 
 export const MainVideo = (props) => {
   return <GeneratedScene />;

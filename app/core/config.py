@@ -2,48 +2,29 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import Optional
+from pydantic import Field
 
 class Settings(BaseSettings):
-    """Application settings."""
     APP_NAME: str = "OmniVid Lite"
     DEBUG: str = "false"
     API_V1_STR: str = "/api/v1"
-    
-    # Database settings
-    DATABASE_URL: str = "sqlite:///./omnivid_lite.db"
-    
-    # Security
-    SECRET_KEY: str = "your-secret-key-here"  # Change this in production
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
-    
-    # Video generation settings
-    MAX_VIDEO_DURATION: int = 300  # 5 minutes in seconds
-    SUPPORTED_VIDEO_FORMATS: list[str] = ["mp4", "webm", "mov"]
 
-    # OpenAI settings
-    OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4o-mini"
-
-    # Code generation settings
-    GENERATED_SCENE_DIR: Path = Path("remotion_engine/src/generated")
-    DEFAULT_WIDTH: int = 1920
-    DEFAULT_HEIGHT: int = 1080
-    DEFAULT_FPS: int = 30
-    DEFAULT_DURATION: int = 5
-
-    # Rendering settings
-    BASE_DIR: Path = Path(__file__).parent.parent.parent
-    OUTPUT_DIR: Path = BASE_DIR / "remotion_engine" / "outputs"
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     REMOTION_DIR: Path = BASE_DIR / "remotion_engine"
-    REMOTION_SCRIPT: Path = REMOTION_DIR / "scripts" / "render.js"
+    OUTPUT_DIR: Path = REMOTION_DIR / "outputs"
 
-    @property
-    def debug_enabled(self) -> bool:
-        """Convert DEBUG string to boolean."""
-        return self.DEBUG.lower() in ("true", "1", "yes", "on")
+    # LLM selection
+    USE_LOCAL_LLM: bool = Field(default=True, env="USE_LOCAL_LLM")
+    OLLAMA_URL: str = Field(default="http://localhost:11434", env="OLLAMA_URL")
+    OLLAMA_MODEL: str = Field(default="deepseek-r1:7b", env="OLLAMA_MODEL")
+    OPENAI_API_KEY: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
+    OPENAI_MODEL: str = Field(default="gpt-4o-mini", env="OPENAI_MODEL")
+
+    REMOTION_CMD: str = Field(default="npx remotion", env="REMOTION_CMD")
+    REDIS_DSN: str = Field(default="redis://localhost:6379", env="REDIS_DSN")
 
     class Config:
-        case_sensitive = True
         env_file = ".env"
+        case_sensitive = True
 
 settings = Settings()

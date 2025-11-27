@@ -1,20 +1,31 @@
 """Main FastAPI application for OmniVid Lite."""
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
 from .core.config import settings
 from .core.logging_config import setup_logging
 from .api import api_router
+from .db.session import create_tables
 
 # Set up logging
 setup_logging()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    create_tables()
+    yield
+    # Shutdown
+    pass
 
 # Create FastAPI app
 app = FastAPI(
     title=settings.APP_NAME,
     description="OmniVid Lite - AI-powered video generation API",
     version="0.1.0",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan
 )
 
 # Set up CORS
