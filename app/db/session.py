@@ -10,7 +10,15 @@ engine = create_engine(DATABASE_URL, echo=False)
 
 session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+from contextlib import contextmanager
+
 def get_session():
+    """Get a database session (for sync operations)"""
+    return session_local()
+
+@contextmanager
+def get_db_session():
+    """Get database session as context manager"""
     session = session_local()
     try:
         yield session
@@ -19,5 +27,3 @@ def get_session():
 
 def create_tables():
     SQLModel.metadata.create_all(bind=engine)
-
-AsyncSessionLocal = async_session

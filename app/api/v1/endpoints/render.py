@@ -66,8 +66,17 @@ async def start_render(req: RenderRequest, user=Depends(require_user), request: 
     audit_logger.log_job_event(job.id, "job_created", {"prompt": prompt, "creative": req.creative}, user.id)
 
     redis = await get_redis_pool()
-    await redis.enqueue_job("generate_video", job.id)
-    audit_logger.log_job_event(job.id, "job_enqueued", {}, user.id)
+    if redis:
+        await redis.enqueue_job("generate_video", job.id)
+        audit_logger.log_job_event(job.id, "job_enqueued", {}, user.id)
+    else:
+        # For demo mode without Redis, run the pipeline directly
+        # In a real app, you'd use background tasks or a different queuing system
+        from app.services.pipeline import run_pipeline
+        import asyncio
+        # Run in background (fire and forget for demo)
+        asyncio.create_task(run_pipeline(prompt, job.id, req.creative))
+        audit_logger.log_job_event(job.id, "job_started_directly", {}, user.id)
 
     base = str(request.base_url).rstrip("/")
 

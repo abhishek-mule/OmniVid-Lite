@@ -8,7 +8,9 @@ async def get_redis_pool():
     """Get or create Redis connection pool"""
     global _redis_pool
     if _redis_pool is None:
-        _redis_pool = await create_pool(settings.REDIS_DSN)
+        # For demo purposes, always return None to skip Redis
+        print("Running in demo mode without Redis queuing.")
+        _redis_pool = None
     return _redis_pool
 
 def get_redis():

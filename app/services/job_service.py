@@ -3,7 +3,7 @@ import json
 from typing import Optional
 from sqlalchemy import select
 from app.db.models import Job, JobStatus
-from app.db.session import get_session
+from app.db.session import get_db_session
 import uuid
 from datetime import datetime
 
@@ -24,7 +24,7 @@ def create_job_with_idempotency(
     }
     request_hash = compute_request_hash(request_payload)
 
-    with get_session() as session:
+    with get_db_session() as session:
         # Check for existing job with same hash
         stmt = select(Job).where(Job.request_hash == request_hash)
         result = session.execute(stmt)
@@ -53,12 +53,12 @@ def create_job_with_idempotency(
 
 def get_job(job_id: str) -> Optional[Job]:
     """Get job by ID"""
-    with get_session() as session:
+    with get_db_session() as session:
         return session.get(Job, job_id)
 
 def update_job_status(job_id: str, status: JobStatus, error: Optional[str] = None):
     """Update job status"""
-    with get_session() as session:
+    with get_db_session() as session:
         job = session.get(Job, job_id)
         if job:
             job.status = status
@@ -69,7 +69,7 @@ def update_job_status(job_id: str, status: JobStatus, error: Optional[str] = Non
 
 def cancel_job(job_id: str) -> bool:
     """Cancel a job if possible"""
-    with get_session() as session:
+    with get_db_session() as session:
         job = session.get(Job, job_id)
         if job and job.status in [JobStatus.PENDING, JobStatus.QUEUED, JobStatus.PROCESSING]:
             job.status = JobStatus.CANCELLED
@@ -87,7 +87,7 @@ def cleanup_old_jobs(days_old: int = 7) -> int:
     cutoff_date = datetime.utcnow() - timedelta(days=days_old)
     cleaned_count = 0
 
-    with get_session() as session:
+    with get_db_session() as session:
         # Find old jobs
         old_jobs = session.query(Job).filter(
             Job.created_at < cutoff_date,
@@ -133,7 +133,7 @@ def cleanup_orphaned_files() -> int:
         return 0
 
     # Get all job IDs from database
-    with get_session() as session:
+    with get_db_session() as session:
         job_ids = {str(job.id) for job in session.query(Job.id).all()}
 
     # Clean generated directories
