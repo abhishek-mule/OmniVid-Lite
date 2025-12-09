@@ -3,23 +3,26 @@ from fastapi import APIRouter, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
-
-from sqlalchemy import select
+import asyncio
 
 from app.core.config import settings
-from app.db.models import Job, JobStatus
-from app.db.session import get_session
-from app.services.redis_pool import get_redis_pool
 from app.services.security import require_user
-from app.services.job_service import (
-    create_job_with_idempotency,
+from app.services.job_store import (
+    create_job,
     get_job,
+    update_job_status,
+    update_job_progress,
+    list_jobs,
     cancel_job,
     cleanup_old_jobs,
-    cleanup_orphaned_files,
+    JobStatus,
+    Job
 )
+from app.services.video_renderer import create_text_video
 from app.services.errors import QuotaError
 from app.services.logging_service import audit_logger
+import uuid
+import logging
 
 router = APIRouter()
 
@@ -57,39 +60,35 @@ class JobListResponse(BaseModel):
 
 @router.post("/render", status_code=202)
 async def start_render(req: RenderRequest, user=Depends(require_user), request: Request = None):
-    """Create + queue a render request."""
+    """Create + start a video render request."""
 
     prompt = req.prompt.strip()
     if not prompt:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Prompt must be non-empty")
 
+    # Generate unique job ID
+    job_id = str(uuid.uuid4())
+
     try:
-        job = create_job_with_idempotency(prompt, req.creative, user_id=user.id)
+        # Create job in store
+        job = await create_job(job_id, req.prompt, user.id, req.creative)
         audit_logger.log_job_event(job.id, "job_created", {"prompt": prompt, "creative": req.creative}, user.id)
-    except QuotaError as e:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
 
-    redis = await get_redis_pool()
-    if redis:
-        await redis.enqueue_job("generate_video", job.id)
-        audit_logger.log_job_event(job.id, "job_enqueued", {}, user.id)
-    else:
-        # For demo mode without Redis, run the pipeline directly
-        # In a real app, you'd use background tasks or a different queuing system
-        from app.services.pipeline import run_pipeline
-        import asyncio
-        # Run in background (fire and forget for demo)
-        asyncio.create_task(run_pipeline(prompt, job.id, req.creative))
-        audit_logger.log_job_event(job.id, "job_started_directly", {}, user.id)
+        # Start video rendering in background (MVP implementation)
+        asyncio.create_task(process_video_render(job_id, req.prompt))
 
-    base = str(request.base_url).rstrip("/")
+        base = str(request.base_url).rstrip("/")
 
-    return {
-        "job_id": job.id,
-        "status": job.status.value,
-        "poll_url": f"{base}/api/v1/render/status/{job.id}",
-        "download_url": f"{base}/api/v1/render/download/{job.id}",
-    }
+        return {
+            "job_id": job.id,
+            "status": job.status.value,
+            "poll_url": f"{base}/api/v1/render/status/{job.id}",
+            "download_url": f"{base}/api/v1/render/download/{job.id}",
+        }
+
+    except Exception as e:
+        audit_logger.log_job_event("unknown", "job_creation_failed", {"error": str(e)}, user.id)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Failed to create job: {str(e)}")
 
 
 @router.get("/status/{job_id}", response_model=JobStatusResponse)
@@ -167,46 +166,87 @@ def download(job_id: str, user=Depends(require_user)):
     )
 
 
-@router.get("/jobs", response_model=JobListResponse)
-def list_jobs(limit: int = 50, user=Depends(require_user)):
-
-    with get_session() as session:
-        stmt = (
-            select(Job)
-            .where(Job.user_id == user.id)
-            .order_by(Job.created_at.desc())
-            .limit(limit)
-        )
-        result = session.execute(stmt)
-        jobs_db = result.scalars().all()
-
-    return JobListResponse(
-        jobs=[
-            JobSummary(
-                job_id=j.id,
-                status=j.status.value,
-                output_path=j.output_path,
-                created_at=j.created_at.isoformat(),
-                updated_at=j.updated_at.isoformat(),
-            )
-            for j in jobs_db
-        ]
-    )
-
-
 @router.post("/cleanup")
-def cleanup_system(days_old: int = 7, user=Depends(require_user)):
+async def cleanup_system(days_old: int = 7, user=Depends(require_user)):
     """Clean up old jobs and orphaned files (admin operation)"""
 
     # Basic auth check - in real app, check for admin role
     if user.id != "demo_user":  # Placeholder for admin check
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
 
-    old_jobs_cleaned = cleanup_old_jobs(days_old)
-    orphaned_cleaned = cleanup_orphaned_files()
+    old_jobs_cleaned = await cleanup_old_jobs(days_old)
+    # Note: orphaned file cleanup not implemented in simple version
 
     return {
-        "message": f"Cleanup completed: {old_jobs_cleaned} old jobs, {orphaned_cleaned} orphaned files removed",
+        "message": f"Cleanup completed: {old_jobs_cleaned} old jobs removed",
         "old_jobs_removed": old_jobs_cleaned,
-        "orphaned_files_removed": orphaned_cleaned
+        "orphaned_files_removed": 0
     }
+
+
+# ---------------------- HELPER FUNCTIONS ----------------------
+
+async def process_video_render(job_id: str, prompt: str):
+    """Process the video rendering in the background."""
+    import os
+    from pathlib import Path
+
+    try:
+        logger = logging.getLogger(__name__)
+
+        # Update job status to processing
+        await update_job_status(job_id, JobStatus.PROCESSING)
+        logger.info(f"Started processing job {job_id} with prompt: '{prompt}'")
+
+        # Create storage directory if it doesn't exist
+        storage_dir = Path("storage")
+        storage_dir.mkdir(exist_ok=True)
+
+        job_dir = storage_dir / "jobs" / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        output_path = job_dir / "output.mp4"
+
+        # Progress callback
+        def progress_callback(progress: int):
+            asyncio.create_task(update_job_progress(job_id, progress))
+
+        # Create the video
+        await update_job_progress(job_id, 10)
+        created_path = create_text_video(prompt, str(output_path), progress_callback)
+
+        # Verify file was created
+        if not os.path.exists(created_path):
+            raise Exception("Video file was not created")
+
+        # Update with final path
+        await update_job_progress(job_id, 100, created_path)
+        await update_job_status(job_id, JobStatus.COMPLETED)
+
+        logger.info(f"Successfully completed job {job_id}, output: {created_path}")
+
+    except Exception as e:
+        error_msg = f"Video rendering failed: {str(e)}"
+        logger.error(f"Job {job_id} failed: {error_msg}")
+        await update_job_status(job_id, JobStatus.FAILED, error_msg)
+
+
+# Update the list_jobs endpoint to use the new job store
+@router.get("/jobs", response_model=JobListResponse)
+async def list_user_jobs(limit: int = 50, user=Depends(require_user)):
+    """List jobs for the authenticated user."""
+
+    user_jobs = await list_jobs(user.id, limit)
+
+    return JobListResponse(
+        jobs=[
+            JobSummary(
+                job_id=job.id,
+                status=job.status.value,
+                output_path=job.output_path,
+                created_at=job.created_at.isoformat(),
+                updated_at=job.updated_at.isoformat(),
+            )
+            for job in user_jobs
+        ]
+    )

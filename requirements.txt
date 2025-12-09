@@ -31,3 +31,8 @@ httpx==0.25.1
 # Development
 python-jose[cryptography]==3.3.0  # For JWT tokens
 python-multipart==0.0.6  # For file uploads
+
+# Video processing
+moviepy==1.0.3
+Pillow==10.1.0
+opencv-python==4.8.1.78
