@@ -1,6 +1,7 @@
 import { registerRoot } from "remotion";
 import { Composition } from "remotion";
 import { MainVideo } from "./MainVideo";
+import { default as GeneratedScene } from "./generated/direct_test_job/GeneratedScene";
 
 export const RemotionRoot: React.FC = () => {
   const compositions = [];
@@ -30,6 +31,18 @@ export const RemotionRoot: React.FC = () => {
   // Note: Dynamic compositions are registered at runtime via the adapter
   // The generated/index.ts file is built dynamically during the pipeline
 
+  compositions.push(
+    <Composition
+      key="GeneratedScene"
+      id="GeneratedScene"
+      component={GeneratedScene}
+      width={1920}
+      height={1080}
+      fps={30}
+      durationInFrames={30 * 5}
+      defaultProps={{}}
+    />
+  );
   return <>{compositions}</>;
 };
 

@@ -33,6 +33,7 @@ def scene_to_tsx(dsl_path: str, tsx_path: str, component_name: str = "GeneratedS
     scene_file = out_dir / "Scene.tsx"
     generated_file = Path(tsx_path)
     if scene_file.exists():
+        generated_file.unlink(missing_ok=True)
         scene_file.rename(generated_file)
 
 def generate_remotion_from_dsl(dsl: dict, out_dir: Path, component_name: str = "GeneratedScene"):
@@ -54,7 +55,7 @@ def generate_remotion_from_dsl(dsl: dict, out_dir: Path, component_name: str = "
     # Scene.tsx: simple loader that imports MotionEngine
     tsx = f"""
 import React from 'react';
-import MotionEngine from '../MotionEngine';
+import MotionEngine from '../../MotionEngine';
 import dsl from './dsl.json';
 
 export const {component_name} = () => {{

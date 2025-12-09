@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "remotion preview",
-    "build": "remotion build --out out",
+    "dev": "npx remotion preview",
+    "build": "npx remotion build --out out",
     "render": "node scripts/render.js"
   },
   "dependencies": {

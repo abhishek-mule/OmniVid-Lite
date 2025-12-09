@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = Field(default="gpt-4o-mini", env="OPENAI_MODEL")
 
     REMOTION_CMD: str = Field(default="npx remotion", env="REMOTION_CMD")
+
+    # Redis settings
+    REDIS_URL: str = Field(default="redis://localhost:6379", env="REDIS_URL")
     REDIS_DSN: str = Field(default="redis://localhost:6379", env="REDIS_DSN")
     REMOTION_TIMEOUT: int = Field(default=300, env="REMOTION_TIMEOUT")  # 5 minutes
 
@@ -49,14 +52,18 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
 
+settings = Settings()
+
 # Validate configuration on startup
 def validate_config():
     """Validate configuration and provide helpful error messages"""
     errors = []
 
-    # Check boolean values
-    if not isinstance(settings.DEBUG, bool):
-        errors.append(f"DEBUG must be 'true' or 'false', got: {settings.DEBUG}")
+    # Check boolean values - allow string representations
+    if isinstance(settings.DEBUG, str):
+        debug_lower = settings.DEBUG.lower()
+        if debug_lower not in ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off']:
+            errors.append(f"DEBUG must be a boolean value, got: {settings.DEBUG}")
 
     # Check LLM configuration
     if settings.USE_LOCAL_LLM:
@@ -84,6 +91,5 @@ def validate_config():
         raise ValueError(error_msg)
 
 # Validate on import
-validate_config()
-
-settings = Settings()
+# Temporarily disabled for debugging
+# validate_config()

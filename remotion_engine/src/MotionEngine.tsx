@@ -8,7 +8,7 @@ export const MotionEngine: React.FC<{ dsl: any }> = ({ dsl }) => {
   const scenes = dsl.scenes || [];
 
   return (
-    <AbsoluteFill style={{ width: meta.width, height: meta.height }}>
+    <AbsoluteFill>
       {scenes.map((scene: any, idx: number) => (
         <SceneRenderer key={scene.id || idx} scene={scene} meta={meta} sceneIndex={idx} />
       ))}

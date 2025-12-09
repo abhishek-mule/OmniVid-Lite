@@ -35,10 +35,10 @@ def render_remotion(composition_id: str, output_path: str, job_dir: str) -> None
       key="{composition_id}"
       id="{composition_id}"
       component={{{composition_id}}}
-      width={{1920}}
-      height={{1080}}
-      fps={{30}}
-      durationInFrames={{30 * 5}}
+      width={1920}
+      height={1080}
+      fps={30}
+      durationInFrames={150}
       defaultProps={{{{}}}}
     />
 '''
@@ -50,45 +50,18 @@ def render_remotion(composition_id: str, output_path: str, job_dir: str) -> None
         # Write back
         index_path.write_text(index_content, encoding="utf-8")
 
-    # Step 2: Ensure build includes the new component
-    build_cmd = ["npm", "run", "build", "--", "--quiet"]
-    try:
-        build_proc = subprocess.run(
-            build_cmd,
-            cwd=str(REMOTION_ROOT),
-            timeout=settings.REMOTION_TIMEOUT,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        if build_proc.returncode != 0:
-            error_msg = f"Remotion build failed (code={build_proc.returncode})"
-            if build_proc.stderr:
-                error_msg += f"\nSTDERR: {build_proc.stderr}"
-            raise RenderError(error_msg)
-    except subprocess.TimeoutExpired:
-        raise RenderError(f"Remotion build timed out after {settings.REMOTION_TIMEOUT} seconds")
+    # Step 2: Skip build - render script handles bundling
 
     # Step 3: Render the specific composition
     script = REMOTION_ROOT / "scripts" / "render.js"
     if script.exists() and script.is_file():
-        render_cmd = [
-            "node",
-            str(script),
-            "--comp", composition_id,
-            "--out", output_path
-        ]
+        # Use the Node.js render script with the composition name
+        config_file = Path(output_path).parent / "dsl.json"
+        # render.js expects either --config or --comp, we're using --comp
+        render_cmd = f'node "{script}" --comp {composition_id} --out "{output_path}"'
     else:
         # Fallback to direct remotion command
-        render_cmd = [
-            settings.REMOTION_CMD,
-            "render",
-            "src/index.tsx",
-            composition_id,
-            "--codec", "h264",
-            "--output", output_path,
-            "--overwrite"
-        ]
+        render_cmd = f'npx remotion render "src/index.tsx" {composition_id} --codec h264 --output "{output_path}" --overwrite'
 
     try:
         render_proc = subprocess.run(
@@ -97,7 +70,10 @@ def render_remotion(composition_id: str, output_path: str, job_dir: str) -> None
             timeout=settings.REMOTION_TIMEOUT,
             capture_output=True,
             text=True,
-            check=False
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            shell=True
         )
         if render_proc.returncode != 0:
             error_msg = f"Remotion render failed (code={render_proc.returncode})"

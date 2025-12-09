@@ -12,11 +12,11 @@ from typing import Optional
 
 from app.middleware.auth import AuthMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.routes import render, status, download, health
-from app.config import settings
-from app.database import engine, Base, get_db
-from app.services.queue_service import QueueService
-from app.utils.logger import setup_logging
+from app.api.v1.endpoints.render import router as render_router
+from app.api.v1.endpoints.render import router as status_router  # status routes are in render.py
+from app.api.v1.endpoints.render import router as download_router  # download routes are in render.py
+from app.core.config import settings
+from app.core.logging_config import setup_logging
 
 # Setup structured logging
 setup_logging()
@@ -28,37 +28,12 @@ async def lifespan(app: FastAPI):
     """Manage application lifespan events"""
     # Startup
     logger.info("Starting OmniVid-Lite application...")
-
-    # Create database tables
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables created successfully")
-    except Exception as e:
-        logger.error(f"Failed to create database tables: {e}")
-        sys.exit(1)
-
-    # Initialize queue service
-    try:
-        queue_service = QueueService()
-        await queue_service.initialize()
-        app.state.queue_service = queue_service
-        logger.info("Queue service initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize queue service: {e}")
-        sys.exit(1)
-
     logger.info("Application startup complete")
 
     yield
 
     # Shutdown
     logger.info("Shutting down OmniVid-Lite application...")
-
-    # Cleanup queue service
-    if hasattr(app.state, 'queue_service'):
-        await app.state.queue_service.cleanup()
-        logger.info("Queue service cleaned up")
-
     logger.info("Application shutdown complete")
 
 # Initialize FastAPI app
@@ -66,8 +41,8 @@ app = FastAPI(
     title="OmniVid-Lite API",
     description="AI-powered text-to-video generation API",
     version="2.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/docs",
+    redoc_url="/redoc",
     lifespan=lifespan
 )
 
@@ -119,10 +94,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # Include routers
-app.include_router(health.router, prefix="/api/v1", tags=["Health"])
-app.include_router(render.router, prefix="/api/v1", tags=["Render"])
-app.include_router(status.router, prefix="/api/v1", tags=["Status"])
-app.include_router(download.router, prefix="/api/v1", tags=["Download"])
+app.include_router(render_router, prefix="/api/v1", tags=["Video Generation"])
 
 # Root endpoint
 @app.get("/")
