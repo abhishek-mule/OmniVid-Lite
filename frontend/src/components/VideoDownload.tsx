@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiService, JobStatus } from '../api';
 
 interface VideoDownloadProps {
@@ -8,6 +8,36 @@ interface VideoDownloadProps {
 const VideoDownload: React.FC<VideoDownloadProps> = ({ jobStatus }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [isLoadingVideo, setIsLoadingVideo] = useState(true);
+
+  // Load video for preview
+  useEffect(() => {
+    const loadVideo = async () => {
+      try {
+        setIsLoadingVideo(true);
+        const blob = await apiService.downloadVideo(jobStatus.job_id);
+        const url = window.URL.createObjectURL(blob);
+        setVideoUrl(url);
+      } catch (err) {
+        console.error('Failed to load video for preview:', err);
+        // Don't show error for preview loading, just don't show preview
+      } finally {
+        setIsLoadingVideo(false);
+      }
+    };
+
+    if (jobStatus.status === 'completed') {
+      loadVideo();
+    }
+
+    // Cleanup
+    return () => {
+      if (videoUrl) {
+        window.URL.revokeObjectURL(videoUrl);
+      }
+    };
+  }, [jobStatus.job_id, jobStatus.status]);
 
   const handleDownload = async () => {
     if (!jobStatus.output_path) {
@@ -58,6 +88,31 @@ const VideoDownload: React.FC<VideoDownloadProps> = ({ jobStatus }) => {
       </div>
 
       <div className="space-y-4">
+        {/* Video Preview */}
+        <div className="bg-gray-50 rounded-lg p-4 mb-4">
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Video Preview</h4>
+          <div className="aspect-video bg-black rounded-lg overflow-hidden">
+            {isLoadingVideo ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+              </div>
+            ) : videoUrl ? (
+              <video
+                controls
+                className="w-full h-full"
+                src={videoUrl}
+                preload="metadata"
+              >
+                Your browser does not support the video tag.
+              </video>
+            ) : (
+              <div className="flex items-center justify-center h-full text-white">
+                <p>Preview not available</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Video Info */}
         <div className="bg-gray-50 rounded-lg p-4">
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -78,30 +133,44 @@ const VideoDownload: React.FC<VideoDownloadProps> = ({ jobStatus }) => {
           )}
         </div>
 
-        {/* Download Button */}
-        <div>
-          <button
-            onClick={handleDownload}
-            disabled={isDownloading}
-            className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isDownloading ? (
-              <div className="flex items-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Downloading...
-              </div>
-            ) : (
-              <div className="flex items-center">
-                <svg className="-ml-1 mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Download Video
-              </div>
-            )}
-          </button>
+        {/* Export Options */}
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-gray-900 mb-3">Export Options</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={handleDownload}
+              disabled={isDownloading}
+              className="flex items-center justify-center py-2 px-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download video in MP4 format"
+            >
+              {isDownloading ? (
+                <div className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Downloading...
+                </div>
+              ) : (
+                <div className="flex items-center">
+                  <svg className="-ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Download MP4
+                </div>
+              )}
+            </button>
+            <button
+              onClick={() => {/* Future: Share functionality */}}
+              className="flex items-center justify-center py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              title="Share video link (coming soon)"
+            >
+              <svg className="-ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+              </svg>
+              Share
+            </button>
+          </div>
         </div>
 
         {/* Error Display */}
@@ -149,14 +218,16 @@ const VideoDownload: React.FC<VideoDownloadProps> = ({ jobStatus }) => {
         {/* Additional Actions */}
         <div className="flex space-x-3 pt-4 border-t border-gray-200">
           <button
-            onClick={() => window.open('http://localhost:8000/docs', '_blank')}
+            onClick={() => window.open('http://localhost:8002/docs', '_blank')}
             className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-md text-sm font-medium transition-colors"
+            title="View API documentation"
           >
             API Docs
           </button>
           <button
             onClick={() => window.location.reload()}
             className="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-700 py-2 px-4 rounded-md text-sm font-medium transition-colors"
+            title="Generate another video"
           >
             Create Another
           </button>

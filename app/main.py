@@ -104,7 +104,18 @@ async def root():
         "service": "OmniVid-Lite API",
         "version": "2.0.0",
         "status": "operational",
-        "docs": "/api/docs"
+        "docs": "/docs"
+    }
+
+
+# Health check endpoint
+@app.get("/api/v1/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "OmniVid-Lite API",
+        "version": "2.0.0"
     }
 
 if __name__ == "__main__":

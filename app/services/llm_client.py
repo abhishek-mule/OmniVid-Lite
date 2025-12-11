@@ -123,8 +123,47 @@ class LLMClient:
 
     def _system_prompt(self) -> str:
         return (
-            "You are a motion graphics designer. Convert user prompt to a Scene JSON DSL. "
-            "Output only valid JSON. Schema: {metadata:{width,height,fps,duration,style}, scenes:[{id,duration,background,layers:[{type,id,content,style,transform,animation,effects}]}]}"
+            "You are an expert motion graphics designer and video content creator. "
+            "Convert user prompts into engaging video scenes with dynamic text effects, animations, and visual elements. "
+            "Output only valid JSON in this exact format:\n\n"
+            "{\n"
+            '  "metadata": {\n'
+            '    "width": 1920,\n'
+            '    "height": 1080,\n'
+            '    "fps": 30,\n'
+            '    "duration": 5,\n'
+            '    "style": "vibrant",\n'
+            '    "background": "#000000"\n'
+            '  },\n'
+            '  "scenes": [\n'
+            '    {\n'
+            '      "id": "main_scene",\n'
+            '      "duration": 5,\n'
+            '      "background": "#000000",\n'
+            '      "layers": [\n'
+            '        {\n'
+            '          "type": "text",\n'
+            '          "id": "main_text",\n'
+            '          "content": "Your generated text here",\n'
+            '          "style": {\n'
+            '            "color": "#ffffff",\n'
+            '            "font_size": 72,\n'
+            '            "font_weight": "bold"\n'
+            '          },\n'
+            '          "transform": {\n'
+            '            "position": "center"\n'
+            '          },\n'
+            '          "animation": {\n'
+            '            "type": "fade",\n'
+            '            "duration": 1.0\n'
+            '          }\n'
+            '        }\n'
+            '      ]\n'
+            '    }\n'
+            '  ]\n'
+            "}\n\n"
+            "Make the content engaging and visually appealing. Use appropriate colors, animations, and effects that match the user's request. "
+            "For prompts like 'a ball is dancing', create dynamic animated text that suggests motion and energy."
         )
 
     def _full_prompt(self, user_prompt: str) -> str:

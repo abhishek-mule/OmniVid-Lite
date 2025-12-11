@@ -1,23 +1,109 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiService, RenderRequest, RenderResponse } from '../api';
 
 interface PromptFormProps {
   onJobStarted: (response: RenderResponse) => void;
 }
 
+interface VideoSection {
+  id: string;
+  name: string;
+  description: string;
+  templates: string[];
+}
+
+interface VideoParameters {
+  duration: number;
+  resolution: '720p' | '1080p' | '4k';
+  style: 'minimal' | 'vibrant' | 'cinematic' | 'abstract';
+  textAnimation: 'fade' | 'slide' | 'bounce' | 'typewriter';
+}
+
+const VIDEO_SECTIONS: VideoSection[] = [
+  {
+    id: 'text-only',
+    name: 'Text Animation',
+    description: 'Simple text animations with fade effects',
+    templates: [
+      'Create a video with the text "{text}" that fades in smoothly',
+      'Display "{text}" with elegant typography and gentle transitions',
+      'Show "{text}" with modern text animation effects'
+    ]
+  },
+  {
+    id: 'educational',
+    name: 'Educational Content',
+    description: 'Learning videos with clear explanations',
+    templates: [
+      'Create an educational video explaining "{text}" with clear visuals',
+      'Make a tutorial video about "{text}" with step-by-step animations',
+      'Design a learning video that teaches "{text}" effectively'
+    ]
+  },
+  {
+    id: 'promotional',
+    name: 'Promotional Content',
+    description: 'Marketing and promotional videos',
+    templates: [
+      'Create an engaging promotional video for "{text}"',
+      'Design a compelling advertisement featuring "{text}"',
+      'Make an attractive marketing video about "{text}"'
+    ]
+  },
+  {
+    id: 'social-media',
+    name: 'Social Media',
+    description: 'Short-form content for social platforms',
+    templates: [
+      'Create a viral social media video about "{text}"',
+      'Design a trending TikTok-style video for "{text}"',
+      'Make an engaging Instagram Reel featuring "{text}"'
+    ]
+  },
+  {
+    id: 'custom',
+    name: 'Custom',
+    description: 'Fully customizable video generation',
+    templates: [
+      '{text}',
+      'Generate a video based on: {text}',
+      'Create custom video content for: {text}'
+    ]
+  }
+];
+
 const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
-  const [prompt, setPrompt] = useState('');
+  const [selectedSection, setSelectedSection] = useState<string>('text-only');
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState<number>(0);
+  const [parameters, setParameters] = useState<VideoParameters>({
+    duration: 5,
+    resolution: '1080p',
+    style: 'minimal',
+    textAnimation: 'fade'
+  });
   const [creative, setCreative] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const getCurrentSection = () => VIDEO_SECTIONS.find(s => s.id === selectedSection) || VIDEO_SECTIONS[0];
+
+  const getCurrentPrompt = () => {
+    if (selectedSection === 'custom') {
+      return customPrompt;
+    }
+    const section = getCurrentSection();
+    return section.templates[selectedTemplate]?.replace('{text}', customPrompt) || customPrompt;
+  };
 
   const validatePrompt = (text: string): string | null => {
     const trimmed = text.trim();
     if (!trimmed) {
       return 'Prompt cannot be empty';
     }
-    if (trimmed.length < 10) {
-      return 'Prompt must be at least 10 characters long';
+    if (trimmed.length < 3) {
+      return 'Prompt must be at least 3 characters long';
     }
     if (trimmed.length > 1000) {
       return 'Prompt must be less than 1000 characters';
@@ -28,7 +114,8 @@ const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const validationError = validatePrompt(prompt);
+    const currentPrompt = getCurrentPrompt();
+    const validationError = validatePrompt(currentPrompt);
     if (validationError) {
       setError(validationError);
       return;
@@ -39,7 +126,7 @@ const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
 
     try {
       const request: RenderRequest = {
-        prompt: prompt.trim(),
+        prompt: currentPrompt.trim(),
         creative,
       };
 
@@ -52,35 +139,82 @@ const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
     }
   };
 
-  const characterCount = prompt.length;
-  const isValid = !validatePrompt(prompt);
+  const currentPrompt = getCurrentPrompt();
+  const characterCount = currentPrompt.length;
+  const isValid = !validatePrompt(currentPrompt);
 
   return (
-    <div className="bg-white shadow-lg rounded-lg p-6">
+    <div className="bg-white shadow-lg rounded-lg p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">
           Create Your Video
         </h2>
         <p className="text-gray-600">
-          Describe the video you want to generate using AI
+          Choose a generation type and customize your video parameters
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Section Selection */}
         <div>
-          <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 mb-2">
-            Video Description
+          <label className="block text-sm font-medium text-gray-700 mb-2" title="Choose the type of video you want to generate">
+            Video Type
+          </label>
+          <select
+            value={selectedSection}
+            onChange={(e) => setSelectedSection(e.target.value)}
+            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            disabled={isSubmitting}
+            title="Select video generation category"
+          >
+            {VIDEO_SECTIONS.map((section) => (
+              <option key={section.id} value={section.id} title={section.description}>
+                {section.name} - {section.description}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Template Selection */}
+        {selectedSection !== 'custom' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2" title="Choose a prompt template for your video type">
+              Template
+            </label>
+            <select
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(parseInt(e.target.value))}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              disabled={isSubmitting}
+              title="Select a pre-built prompt template"
+            >
+              {getCurrentSection().templates.map((template, index) => (
+                <option key={index} value={index} title={template}>
+                  Template {index + 1}: {template.replace('{text}', '[Your Text]').substring(0, 50)}...
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Custom Prompt Input */}
+        <div>
+          <label htmlFor="customPrompt" className="block text-sm font-medium text-gray-700 mb-2">
+            {selectedSection === 'custom' ? 'Custom Prompt' : 'Your Text'}
           </label>
           <textarea
-            id="prompt"
-            rows={4}
+            id="customPrompt"
+            rows={3}
             className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm resize-none ${
-              !isValid && prompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
+              !isValid && customPrompt ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
             }`}
-            placeholder="Describe your video in detail... e.g., 'A serene mountain landscape at sunset with flowing water and gentle wind'"
-            value={prompt}
+            placeholder={selectedSection === 'custom'
+              ? "Describe your video in detail..."
+              : "Enter the main text for your video..."
+            }
+            value={customPrompt}
             onChange={(e) => {
-              setPrompt(e.target.value);
+              setCustomPrompt(e.target.value);
               setError('');
             }}
             disabled={isSubmitting}
@@ -90,11 +224,120 @@ const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
               {characterCount}/1000 characters
             </div>
             <div className={`text-sm ${characterCount > 900 ? 'text-red-600' : characterCount > 800 ? 'text-yellow-600' : 'text-gray-500'}`}>
-              {characterCount > 1000 ? 'Too long' : characterCount < 10 ? 'Too short' : 'Good length'}
+              {characterCount > 1000 ? 'Too long' : characterCount < 3 ? 'Too short' : 'Good length'}
             </div>
           </div>
         </div>
 
+        {/* Preview of Generated Prompt */}
+        {currentPrompt && currentPrompt !== customPrompt && (
+          <div className="bg-blue-50 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-blue-900 mb-2">Generated Prompt Preview:</h4>
+            <p className="text-sm text-blue-800 italic">"{currentPrompt}"</p>
+          </div>
+        )}
+
+        {/* Advanced Options Toggle */}
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-sm text-blue-600 hover:text-blue-500 font-medium transition-colors"
+            title="Customize video parameters like duration, resolution, and style"
+          >
+            {showAdvanced ? 'Hide' : 'Show'} Advanced Options
+          </button>
+          <span className="text-xs text-gray-500 hidden sm:inline">
+            Optional settings for fine-tuning
+          </span>
+        </div>
+
+        {/* Advanced Options */}
+        {showAdvanced && (
+          <div className="space-y-4 bg-gray-50 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-900">Video Parameters</h4>
+
+            {/* Duration Slider */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2" title="Video length in seconds (3-15)">
+                Duration: {parameters.duration} seconds
+              </label>
+              <input
+                type="range"
+                min="3"
+                max="15"
+                value={parameters.duration}
+                onChange={(e) => setParameters({...parameters, duration: parseInt(e.target.value)})}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                disabled={isSubmitting}
+                title={`Set video duration to ${parameters.duration} seconds`}
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <span>3s</span>
+                <span>9s</span>
+                <span>15s</span>
+              </div>
+            </div>
+
+            {/* Resolution Selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2" title="Video resolution affects file size and quality">
+                Resolution
+              </label>
+              <select
+                value={parameters.resolution}
+                onChange={(e) => setParameters({...parameters, resolution: e.target.value as any})}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                disabled={isSubmitting}
+                title="Choose video resolution"
+              >
+                <option value="720p" title="1280x720 - Good quality, smaller file">720p HD</option>
+                <option value="1080p" title="1920x1080 - High quality, standard size">1080p Full HD</option>
+                <option value="4k" title="3840x2160 - Ultra high quality, large file">4K Ultra HD</option>
+              </select>
+            </div>
+
+            {/* Style Selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2" title="Visual style affects colors and overall appearance">
+                Visual Style
+              </label>
+              <select
+                value={parameters.style}
+                onChange={(e) => setParameters({...parameters, style: e.target.value as any})}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                disabled={isSubmitting}
+                title="Select visual theme"
+              >
+                <option value="minimal" title="Clean, simple design">Minimal</option>
+                <option value="vibrant" title="Bright, colorful design">Vibrant</option>
+                <option value="cinematic" title="Movie-like, dramatic effects">Cinematic</option>
+                <option value="abstract" title="Modern, artistic design">Abstract</option>
+              </select>
+            </div>
+
+            {/* Animation Type */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2" title="How text appears and moves in the video">
+                Text Animation
+              </label>
+              <select
+                value={parameters.textAnimation}
+                onChange={(e) => setParameters({...parameters, textAnimation: e.target.value as any})}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                disabled={isSubmitting}
+                title="Choose text animation style"
+              >
+                <option value="fade" title="Text fades in and out smoothly">Fade In/Out</option>
+                <option value="slide" title="Text slides in from the side">Slide In</option>
+                <option value="bounce" title="Text bounces into view">Bounce</option>
+                <option value="typewriter" title="Text appears character by character">Typewriter</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Creative Mode */}
         <div className="flex items-center">
           <input
             id="creative"
@@ -109,6 +352,7 @@ const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
           </label>
         </div>
 
+        {/* Error Display */}
         {error && (
           <div className="rounded-md bg-red-50 p-4">
             <div className="flex">
@@ -129,6 +373,7 @@ const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
           </div>
         )}
 
+        {/* Submit Button */}
         <div>
           <button
             type="submit"
@@ -144,7 +389,12 @@ const PromptForm: React.FC<PromptFormProps> = ({ onJobStarted }) => {
                 Generating Video...
               </div>
             ) : (
-              'Generate Video'
+              <div className="flex items-center">
+                <svg className="-ml-1 mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                Generate Video
+              </div>
             )}
           </button>
         </div>

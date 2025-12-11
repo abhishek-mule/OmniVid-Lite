@@ -1,5 +1,5 @@
 // API service for communicating with OmniVid-Lite backend
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8002';
 
 export interface RenderRequest {
   prompt: string;
@@ -76,7 +76,8 @@ class ApiService {
   async validateApiKey(apiKey: string): Promise<boolean> {
     try {
       this.apiKey = apiKey;
-      await this.request('/api/v1/render/status/test');
+      // Use health endpoint for validation since it doesn't require specific job IDs
+      await this.request('/api/v1/health');
       return true;
     } catch (error) {
       this.apiKey = '';
@@ -116,6 +117,10 @@ class ApiService {
   // Utility
   async checkHealth(): Promise<{ status: string }> {
     return this.request('/api/v1/health');
+  }
+
+  async checkAIStatus(): Promise<any> {
+    return this.request('/api/v1/render/ai-status');
   }
 }
 

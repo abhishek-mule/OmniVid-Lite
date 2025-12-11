@@ -110,7 +110,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuthenticated }) => {
             <p className="text-sm text-gray-600">
               Need an API key? Check the{' '}
               <a
-                href="http://localhost:8000/docs"
+                href="http://localhost:8002/docs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-medium text-blue-600 hover:text-blue-500"

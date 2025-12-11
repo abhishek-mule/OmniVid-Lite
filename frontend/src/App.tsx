@@ -3,6 +3,7 @@ import AuthForm from './components/AuthForm';
 import PromptForm from './components/PromptForm';
 import JobStatus from './components/JobStatus';
 import VideoDownload from './components/VideoDownload';
+import AIStatus from './components/AIStatus';
 import { apiService, RenderResponse, JobStatus as JobStatusType } from './api';
 
 type AppState = 'auth' | 'create' | 'status' | 'download';
@@ -78,6 +79,7 @@ function App() {
 
             {appState !== 'auth' && (
               <div className="flex items-center space-x-4">
+                <AIStatus />
                 <a
                   href="http://localhost:8000/docs"
                   target="_blank"

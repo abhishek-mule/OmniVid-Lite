@@ -19,7 +19,7 @@ const JobStatusComponent: React.FC<JobStatusProps> = ({ job, onComplete, onError
         setStatus(jobStatus);
         setPollCount(prev => prev + 1);
 
-        if (jobStatus.status === 'done') {
+        if (jobStatus.status === 'completed') {
           setIsPolling(false);
           onComplete(jobStatus);
         } else if (jobStatus.status === 'failed') {
@@ -45,14 +45,14 @@ const JobStatusComponent: React.FC<JobStatusProps> = ({ job, onComplete, onError
     switch (status) {
       case 'pending':
         return 'text-yellow-600 bg-yellow-100';
-      case 'queued':
-        return 'text-blue-600 bg-blue-100';
       case 'processing':
         return 'text-purple-600 bg-purple-100';
-      case 'done':
+      case 'completed':
         return 'text-green-600 bg-green-100';
       case 'failed':
         return 'text-red-600 bg-red-100';
+      case 'cancelled':
+        return 'text-gray-600 bg-gray-100';
       default:
         return 'text-gray-600 bg-gray-100';
     }
@@ -62,14 +62,14 @@ const JobStatusComponent: React.FC<JobStatusProps> = ({ job, onComplete, onError
     switch (status) {
       case 'pending':
         return '⏳';
-      case 'queued':
-        return '📋';
       case 'processing':
         return '⚙️';
-      case 'done':
+      case 'completed':
         return '✅';
       case 'failed':
         return '❌';
+      case 'cancelled':
+        return '🚫';
       default:
         return '❓';
     }
@@ -77,21 +77,55 @@ const JobStatusComponent: React.FC<JobStatusProps> = ({ job, onComplete, onError
 
   const getProgressPercentage = () => {
     if (!status) return 0;
-    // Map status to rough progress estimates
+    // Use actual progress from API, fallback to status-based estimates
+    if (status.progress !== undefined && status.progress >= 0) {
+      return Math.min(100, Math.max(0, status.progress));
+    }
+    // Fallback to status-based estimates
     switch (status.status) {
       case 'pending':
         return 10;
-      case 'queued':
-        return 25;
       case 'processing':
         return Math.min(90, 30 + (pollCount * 5)); // Gradually increase during processing
-      case 'done':
+      case 'completed':
         return 100;
       case 'failed':
         return 0;
       default:
         return 0;
     }
+  };
+
+  const getStatusDetails = () => {
+    if (!status) return { message: 'Loading...', color: 'text-gray-600' };
+
+    switch (status.status) {
+      case 'pending':
+        return { message: 'Video queued for processing', color: 'text-yellow-600' };
+      case 'processing':
+        return { message: 'AI is generating your video...', color: 'text-blue-600' };
+      case 'completed':
+        return { message: 'Video generation completed successfully!', color: 'text-green-600' };
+      case 'failed':
+        return { message: 'Video generation failed', color: 'text-red-600' };
+      default:
+        return { message: 'Unknown status', color: 'text-gray-600' };
+    }
+  };
+
+  const getEstimatedTimeRemaining = () => {
+    if (!status || status.status !== 'processing') return null;
+
+    const progress = getProgressPercentage();
+    if (progress <= 0) return null;
+
+    // Estimate based on typical 5-second video generation time
+    const estimatedTotalTime = 6; // seconds
+    const elapsedTime = (progress / 100) * estimatedTotalTime;
+    const remainingTime = estimatedTotalTime - elapsedTime;
+
+    if (remainingTime <= 0) return 'Almost done...';
+    return `~${Math.ceil(remainingTime)}s remaining`;
   };
 
   if (!status) {
@@ -105,12 +139,15 @@ const JobStatusComponent: React.FC<JobStatusProps> = ({ job, onComplete, onError
     );
   }
 
+  const statusDetails = getStatusDetails();
+  const timeRemaining = getEstimatedTimeRemaining();
+
   return (
     <div className="bg-white shadow-lg rounded-lg p-6">
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-medium text-gray-900">
-            Job Status
+            Video Generation Status
           </h3>
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(status.status)}`}>
             {getStatusIcon(status.status)} {status.status.toUpperCase()}
@@ -119,21 +156,34 @@ const JobStatusComponent: React.FC<JobStatusProps> = ({ job, onComplete, onError
         <p className="mt-1 text-sm text-gray-600">
           Job ID: <code className="bg-gray-100 px-1 rounded">{job.job_id}</code>
         </p>
+        <p className={`mt-2 text-sm font-medium ${statusDetails.color}`}>
+          {statusDetails.message}
+          {timeRemaining && <span className="ml-2 text-xs">({timeRemaining})</span>}
+        </p>
       </div>
 
       <div className="space-y-4">
-        {/* Progress Bar */}
+        {/* Enhanced Progress Bar */}
         <div>
           <div className="flex justify-between text-sm text-gray-600 mb-1">
-            <span>Progress</span>
+            <span>Generation Progress</span>
             <span>{getProgressPercentage()}%</span>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
+          <div className="w-full bg-gray-200 rounded-full h-3">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              className={`h-3 rounded-full transition-all duration-500 ${
+                status.status === 'completed' ? 'bg-green-600' :
+                status.status === 'failed' ? 'bg-red-600' :
+                'bg-blue-600'
+              }`}
               style={{ width: `${getProgressPercentage()}%` }}
             ></div>
           </div>
+          {status.status === 'processing' && (
+            <div className="mt-2 text-xs text-gray-500">
+              AI is processing your video request...
+            </div>
+          )}
         </div>
 
         {/* Status Details */}
@@ -181,7 +231,7 @@ const JobStatusComponent: React.FC<JobStatusProps> = ({ job, onComplete, onError
         )}
 
         {/* Success Message */}
-        {status.status === 'done' && (
+        {status.status === 'completed' && (
           <div className="rounded-md bg-green-50 p-4">
             <div className="flex">
               <div className="flex-shrink-0">

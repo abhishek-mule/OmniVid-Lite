@@ -1,24 +1,16 @@
 """
-Background worker for processing render jobs
+Background worker for processing render jobs using simple video renderer
 Run this separately: python -m app.worker
 """
 import asyncio
 import logging
 import signal
 import sys
-import os
-import subprocess
-import json
-from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from app.core.config import settings
-from app.db.session import get_db_session
-from app.db.models import Job, JobStatus
-from app.services.llm_client import llm_client
-from app.services.scene_to_tsx import scene_to_tsx
-from app.services.remotion_adapter import render_remotion
-from app.services.errors import RenderError
+from app.services.job_store import job_store, JobStatus
+from app.services.video_renderer import create_text_video
 from app.core.logging_config import setup_logging
 
 # Setup logging
@@ -75,80 +67,71 @@ class RenderWorker:
         logger.info("Processing loop ended")
 
     async def _get_next_job(self):
-        """Get next pending job from database"""
-        with get_db_session() as session:
-            job = session.query(Job).filter(
-                Job.status == JobStatus.PENDING
-            ).order_by(Job.created_at).first()
+        """Get next pending job from job store"""
+        # Find the oldest pending job
+        pending_jobs = [
+            job for job in job_store.jobs.values()
+            if job.status == JobStatus.PENDING
+        ]
+        if not pending_jobs:
+            return None
 
-            if job:
-                # Mark as processing
-                job.status = JobStatus.PROCESSING
-                job.started_at = datetime.utcnow()
-                session.commit()
+        # Sort by creation time and get the oldest
+        pending_jobs.sort(key=lambda j: j.created_at)
+        job = pending_jobs[0]
 
-            return job
+        # Mark as processing
+        await job_store.update_job_status(job.id, JobStatus.PROCESSING)
+        logger.info(f"Marked job {job.id} as processing")
+        return job
 
     async def _process_job(self, job):
         """
-        Process a single render job
+        Process a single render job using simple video renderer
 
         Args:
-            job: Job database object
+            job: Job object from job store
         """
-        logger.info(f"Processing job {job.id}")
+        logger.info(f"Processing job {job.id} with prompt: '{job.prompt}'")
 
         try:
-            # Step 1: Generate scene JSON from LLM
-            logger.info(f"Generating scene JSON for job {job.id}")
-            dsl = await llm_client.generate_dsl(job.prompt)
+            # Update progress to 10%
+            await job_store.update_job_progress(job.id, 10)
 
-            # Save DSL to job directory
-            job_dir = settings.REMOTION_DIR / "src" / "generated" / job.id
+            # Create storage directory
+            import os
+            from pathlib import Path
+            storage_dir = Path("storage")
+            storage_dir.mkdir(exist_ok=True)
+            job_dir = storage_dir / "jobs" / job.id
             job_dir.mkdir(parents=True, exist_ok=True)
-            dsl_path = job_dir / "scene.json"
-            dsl_path.write_text(json.dumps(dsl, indent=2), encoding="utf-8")
+            output_path = job_dir / "output.mp4"
 
-            # Step 2: Generate Remotion TSX file
-            logger.info(f"Generating TSX file for job {job.id}")
-            tsx_path = job_dir / "GeneratedScene.tsx"
-            scene_to_tsx(str(dsl_path), str(tsx_path))
+            # Progress callback for renderer
+            def progress_callback(progress: int):
+                asyncio.create_task(job_store.update_job_progress(job.id, progress))
 
-            # Step 3: Render video with Remotion
+            # Update progress to 20%
+            await job_store.update_job_progress(job.id, 20)
+
+            # Render video using simple renderer
             logger.info(f"Rendering video for job {job.id}")
-            output_file = settings.OUTPUT_DIR / f"{job.id}.mp4"
+            created_path = create_text_video(job.prompt, str(output_path), progress_callback)
 
-            # Run rendering in thread pool to avoid blocking
-            success, output_path, logs = await asyncio.to_thread(
-                render_remotion, "GeneratedScene", str(output_file)
-            )
+            # Verify file was created
+            if not os.path.exists(created_path):
+                raise Exception("Video file was not created")
 
-            if not success:
-                raise RenderError(f"Rendering failed: {logs}")
+            # Update job as completed
+            await job_store.update_job_status(job.id, JobStatus.COMPLETED)
+            await job_store.update_job_progress(job.id, 100, created_path)
 
-            # Step 4: Update job with results
-            with get_db_session() as session:
-                db_job = session.get(Job, job.id)
-                if db_job:
-                    db_job.status = JobStatus.COMPLETED
-                    db_job.output_path = str(output_path)
-                    db_job.completed_at = datetime.utcnow()
-                    db_job.progress = 100.0
-                    session.commit()
-
-            logger.info(f"Job {job.id} completed successfully")
+            logger.info(f"Job {job.id} completed successfully, output: {created_path}")
 
         except Exception as e:
-            logger.error(f"Job {job.id} failed: {str(e)}", exc_info=True)
-
-            # Update job as failed
-            with get_db_session() as session:
-                db_job = session.get(Job, job.id)
-                if db_job:
-                    db_job.status = JobStatus.FAILED
-                    db_job.error = str(e)
-                    db_job.completed_at = datetime.utcnow()
-                    session.commit()
+            error_msg = f"Video rendering failed: {str(e)}"
+            logger.error(f"Job {job.id} failed: {error_msg}", exc_info=True)
+            await job_store.update_job_status(job.id, JobStatus.FAILED, error_msg)
 
     async def stop(self):
         """Stop the worker gracefully"""

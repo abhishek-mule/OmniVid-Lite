@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.core.config import settings
+import asyncio
 
 client = TestClient(app)
 
@@ -58,14 +59,15 @@ def test_render_success(auth_headers):
         headers=auth_headers,
         json={
             "prompt": "Create a video with text 'Hello World' that fades in",
-            "duration": 5,
-            "priority": 2
+            "creative": True
         }
     )
-    assert response.status_code == 201
+    assert response.status_code == 202  # Accepted for async processing
     data = response.json()
     assert "job_id" in data
     assert data["status"] == "pending"
+    assert "poll_url" in data
+    assert "download_url" in data
     return data["job_id"]
 
 def test_status_not_found():
@@ -102,13 +104,55 @@ def test_cancel_job(auth_headers):
     job_id = create_response.json()["job_id"]
 
     # Cancel it
-    response = client.delete(
-        f"/api/v1/render/{job_id}",
+    response = client.patch(
+        f"/api/v1/render/cancel/{job_id}",
         headers=auth_headers
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "cancelled"
+    assert data["message"] == "Cancellation requested"
+
+def test_list_jobs(auth_headers):
+    """Test listing user jobs"""
+    # Create a couple jobs
+    job_ids = []
+    for i in range(2):
+        response = client.post(
+            "/api/v1/render",
+            headers=auth_headers,
+            json={"prompt": f"Test video {i}"}
+        )
+        job_ids.append(response.json()["job_id"])
+
+    # List jobs
+    response = client.get("/api/v1/render/jobs", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert "jobs" in data
+    assert len(data["jobs"]) >= 2
+
+    # Check job structure
+    job = data["jobs"][0]
+    assert "job_id" in job
+    assert "status" in job
+    assert "created_at" in job
+    assert "updated_at" in job
+
+
+def test_download_job_not_ready(auth_headers):
+    """Test downloading a job that isn't ready"""
+    # Create a job
+    response = client.post(
+        "/api/v1/render",
+        headers=auth_headers,
+        json={"prompt": "Test video for download"}
+    )
+    job_id = response.json()["job_id"]
+
+    # Try to download before completion
+    response = client.get(f"/api/v1/render/download/{job_id}", headers=auth_headers)
+    assert response.status_code == 425  # Too Early
+
 
 def test_rate_limiting():
     """Test rate limiting"""
