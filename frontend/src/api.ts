@@ -120,7 +120,7 @@ class ApiService {
   }
 
   async checkAIStatus(): Promise<any> {
-    return this.request('/api/v1/render/ai-status');
+    return this.request('/api/v1/ai-status');
   }
 }
 

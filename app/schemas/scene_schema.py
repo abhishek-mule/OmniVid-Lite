@@ -61,6 +61,12 @@ class SceneModel(BaseModel):
     transition: Optional[Dict[str, Any]] = {}
     startFrame: Optional[int] = 0
 
+    @validator("duration")
+    def positive_duration(cls, v):
+        if v <= 0:
+            raise ValueError("duration must be positive frames")
+        return v
+
 class DSLModel(BaseModel):
     meta: MetaModel
     scenes: List[SceneModel]

@@ -2,7 +2,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 import asyncio
 
 from app.core.config import settings
@@ -20,6 +20,14 @@ from app.services.job_store import (
 )
 from app.services.video_renderer import create_enhanced_text_video
 from app.services.llm_client import llm_client
+from app.services.templates import (
+    list_templates,
+    get_template,
+    get_template_categories,
+    apply_template_variables,
+    suggest_templates_for_prompt,
+    VideoTemplate
+)
 from app.services.errors import QuotaError
 from app.services.logging_service import audit_logger
 import uuid
@@ -249,7 +257,83 @@ async def get_ai_status():
     return ai_status
 
 
+@router.get("/templates")
+async def get_templates(category: str = None):
+    """Get list of available video templates"""
+    templates = list_templates(category)
+    return {"templates": [t.dict() for t in templates]}
+
+
+@router.get("/templates/categories")
+async def get_template_categories_endpoint():
+    """Get list of template categories"""
+    categories = get_template_categories()
+    return {"categories": categories}
+
+
+@router.get("/templates/{template_id}")
+async def get_template_endpoint(template_id: str):
+    """Get a specific template by ID"""
+    try:
+        template = get_template(template_id)
+        return template.dict()
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
+@router.post("/templates/{template_id}/apply")
+async def apply_template(template_id: str, variables: Dict[str, str]):
+    """Apply variables to a template and return customized version"""
+    try:
+        template = get_template(template_id)
+        customized = apply_template_variables(template, variables)
+        return customized.dict()
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
+class TemplateSuggestionRequest(BaseModel):
+    prompt: str
+
+@router.post("/templates/suggest")
+async def suggest_templates(request: TemplateSuggestionRequest):
+    """Suggest templates based on prompt analysis"""
+    suggestions = suggest_templates_for_prompt(request.prompt)
+    return {"suggestions": suggestions}
+
+
 # ---------------------- HELPER FUNCTIONS ----------------------
+
+def _categorize_ai_error(error: Exception) -> str:
+    """
+    Categorize AI errors for better error handling and user messaging.
+    Returns: 'temporary', 'permanent', or 'unknown'
+    """
+    error_str = str(error).lower()
+
+    # Permanent errors (no point retrying)
+    permanent_indicators = [
+        "authentication failed", "invalid api key", "unauthorized",
+        "model not found", "model does not exist", "forbidden",
+        "quota exceeded", "billing", "payment required"
+    ]
+
+    # Temporary errors (might work if retried)
+    temporary_indicators = [
+        "timeout", "connection", "network", "server error",
+        "rate limit", "too many requests", "service unavailable",
+        "internal server error", "bad gateway", "gateway timeout"
+    ]
+
+    for indicator in permanent_indicators:
+        if indicator in error_str:
+            return "permanent"
+
+    for indicator in temporary_indicators:
+        if indicator in error_str:
+            return "temporary"
+
+    return "unknown"
 
 async def enhance_prompt_for_video(prompt: str) -> str:
     """
@@ -341,12 +425,12 @@ async def process_video_render(job_id: str, req: RenderRequest):
             "creative": req.creative
         }
         audit_logger.log_job_event(job_id, "job_started", params, "system")
-        logger.info(f"🚀 Job {job_id} started processing with enhanced parameters: {params}")
+        logger.info(f"Job {job_id} started processing with enhanced parameters: {params}")
 
         # Update job status to processing
         await update_job_status(job_id, JobStatus.PROCESSING)
         audit_logger.log_job_event(job_id, "status_changed", {"status": "processing"}, "system")
-        logger.info(f"📝 Job {job_id} status changed to PROCESSING")
+        logger.info(f"Job {job_id} status changed to PROCESSING")
 
         # Create storage directory if it doesn't exist
         storage_dir = Path("storage")
@@ -356,7 +440,7 @@ async def process_video_render(job_id: str, req: RenderRequest):
         job_dir.mkdir(parents=True, exist_ok=True)
 
         output_path = job_dir / "output.mp4"
-        logger.info(f"📁 Job {job_id} storage directory created: {job_dir}")
+        logger.info(f"Job {job_id} storage directory created: {job_dir}")
 
         # Progress callback
         def progress_callback(progress: int):
@@ -366,19 +450,36 @@ async def process_video_render(job_id: str, req: RenderRequest):
         # Step 1: Generate scene DSL using AI
         await update_job_progress(job_id, 5)
         audit_logger.log_job_event(job_id, "ai_generation_started", params, "system")
-        logger.info(f"🤖 Job {job_id} starting AI scene generation for prompt: '{req.prompt}'")
+        logger.info(f"Job {job_id} starting AI scene generation for prompt: '{req.prompt}'")
+
+        scene_dsl = None
+        ai_error_details = None
 
         try:
             scene_dsl = await llm_client.generate_dsl(req.prompt)
-            logger.info(f"✅ Job {job_id} AI scene generation completed")
+            logger.info(f"Job {job_id} AI scene generation completed")
         except Exception as e:
-            logger.warning(f"⚠️ Job {job_id} AI generation failed ({e}), falling back to enhanced text rendering")
-            scene_dsl = None
+            ai_error_details = str(e)
+            error_type = _categorize_ai_error(e)
+
+            if error_type == "temporary":
+                logger.warning(f"Job {job_id} Temporary AI error ({e}), falling back to enhanced text rendering")
+            elif error_type == "permanent":
+                logger.error(f"Job {job_id} Permanent AI error ({e}), falling back to enhanced text rendering")
+            else:
+                logger.warning(f"Job {job_id} Unknown AI error ({e}), falling back to enhanced text rendering")
+
+            # Log the error details for debugging
+            audit_logger.log_job_event(job_id, "ai_generation_failed", {
+                "error": ai_error_details,
+                "error_type": error_type,
+                "fallback_used": True
+            }, "system")
 
         # If AI generation failed, enhance the prompt for better text rendering
         if scene_dsl is None:
             req.prompt = await enhance_prompt_for_video(req.prompt)
-            logger.info(f"📝 Job {job_id} enhanced prompt for fallback: '{req.prompt}'")
+            logger.info(f"Job {job_id} enhanced prompt for fallback: '{req.prompt}'")
 
         # Step 2: Create the enhanced video with AI-generated content or fallback
         await update_job_progress(job_id, 10)
@@ -387,7 +488,7 @@ async def process_video_render(job_id: str, req: RenderRequest):
             "ai_generated": scene_dsl is not None,
             **params
         }, "system")
-        logger.info(f"🎬 Job {job_id} starting enhanced video render to: {output_path}")
+        logger.info(f"Job {job_id} starting enhanced video render to: {output_path}")
 
         if scene_dsl:
             # Use AI-generated scene DSL for advanced rendering
@@ -424,11 +525,11 @@ async def process_video_render(job_id: str, req: RenderRequest):
             "output_path": created_path,
             **params
         }, "system")
-        logger.info(f"✅ Job {job_id} COMPLETED successfully with enhanced video, output: {created_path}")
+        logger.info(f"Job {job_id} COMPLETED successfully with enhanced video, output: {created_path}")
 
     except Exception as e:
         error_msg = f"Enhanced video rendering failed: {str(e)}"
-        logger.error(f"❌ Job {job_id} FAILED: {error_msg}", exc_info=True)
+        logger.error(f"Job {job_id} FAILED: {error_msg}", exc_info=True)
         audit_logger.log_job_event(job_id, "job_failed", {"error": error_msg}, "system")
         await update_job_status(job_id, JobStatus.FAILED, error_msg)
 
